@@ -6,8 +6,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/cloudflare/cfssl/certdb/dbconf"
-	"github.com/cloudflare/cfssl/certdb/sql"
+	"github.com/cloudflare/cfssl/certdb/factory"
 	"github.com/cloudflare/cfssl/cli"
 )
 
@@ -30,12 +29,7 @@ func ocspdumpMain(args []string, c cli.Config) error {
 		return errors.New("need DB config file (provide with -db-config)")
 	}
 
-	db, err := dbconf.DBFromConfig(c.DBConfigFile)
-	if err != nil {
-		return err
-	}
-
-	dbAccessor := sql.NewAccessor(db)
+	dbAccessor := certdbfactory.NewAccessor(c.DBConfigFile)
 	records, err := dbAccessor.GetUnexpiredOCSPs()
 	if err != nil {
 		return err

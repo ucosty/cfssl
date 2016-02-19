@@ -2,12 +2,10 @@
 package sign
 
 import (
-	"database/sql"
 	"encoding/json"
 	"io/ioutil"
 
-	"github.com/cloudflare/cfssl/certdb/dbconf"
-	certsql "github.com/cloudflare/cfssl/certdb/sql"
+	certsql "github.com/cloudflare/cfssl/certdb/couchbase"
 	"github.com/cloudflare/cfssl/cli"
 	"github.com/cloudflare/cfssl/config"
 	"github.com/cloudflare/cfssl/log"
@@ -37,7 +35,7 @@ var signerFlags = []string{"hostname", "csr", "ca", "ca-key", "config", "profile
 
 // SignerFromConfigAndDB takes the Config and creates the appropriate
 // signer.Signer object with a specified db
-func SignerFromConfigAndDB(c cli.Config, db *sql.DB) (signer.Signer, error) {
+func SignerFromConfigAndDB(c cli.Config) (signer.Signer, error) {
 	// If there is a config, use its signing policy. Otherwise create a default policy.
 	var policy *config.Signing
 	if c.CFG != nil {
@@ -63,10 +61,10 @@ func SignerFromConfigAndDB(c cli.Config, db *sql.DB) (signer.Signer, error) {
 		return nil, err
 	}
 
-	if db != nil {
-		dbAccessor := certsql.NewAccessor(db)
+	//if db != nil {
+		dbAccessor := certsql.NewAccessor(c.DBConfigFile)
 		s.SetDBAccessor(dbAccessor)
-	}
+	//}
 
 	return s, nil
 }
@@ -74,14 +72,7 @@ func SignerFromConfigAndDB(c cli.Config, db *sql.DB) (signer.Signer, error) {
 // SignerFromConfig takes the Config and creates the appropriate
 // signer.Signer object
 func SignerFromConfig(c cli.Config) (s signer.Signer, err error) {
-	var db *sql.DB
-	if c.DBConfigFile != "" {
-		db, err = dbconf.DBFromConfig(c.DBConfigFile)
-		if err != nil {
-			return nil, err
-		}
-	}
-	return SignerFromConfigAndDB(c, db)
+	return SignerFromConfigAndDB(c)
 }
 
 // signerMain is the main CLI of signer functionality.

@@ -2,6 +2,7 @@ package dbconf
 
 import (
 	"database/sql"
+
 	"encoding/json"
 	"errors"
 	"io/ioutil"
@@ -36,11 +37,11 @@ func LoadFile(path string) (cfg *DBConfig, err error) {
 	err = json.Unmarshal(body, &cfg)
 	if err != nil {
 		return nil, cferr.Wrap(cferr.PolicyError, cferr.InvalidPolicy,
-			errors.New("failed to unmarshal configuration: "+err.Error()))
+			errors.New("Failed to unmarshal configuration: "+err.Error()))
 	}
 
 	if cfg.DataSourceName == "" || cfg.DriverName == "" {
-		return nil, cferr.Wrap(cferr.PolicyError, cferr.InvalidPolicy, errors.New("invalid db configuration"))
+		return nil, cferr.Wrap(cferr.PolicyError, cferr.InvalidPolicy, errors.New("Invalid DB configuration"))
 	}
 
 	return
@@ -48,11 +49,11 @@ func LoadFile(path string) (cfg *DBConfig, err error) {
 
 // DBFromConfig opens a sql.DB from settings in a db config file
 func DBFromConfig(path string) (db *sql.DB, err error) {
-	var dbCfg *DBConfig
-	dbCfg, err = LoadFile(path)
-	if err != nil {
-		return nil, err
-	}
-
-	return sql.Open(dbCfg.DriverName, dbCfg.DataSourceName)
+	// var dbCfg *DBConfig
+	// dbCfg, err = LoadFile(path)
+	// if err != nil {
+	// 	return nil, err
+	// }
+	return nil, nil
+	//return sql.Open(dbCfg.DriverName, dbCfg.DataSourceName)
 }

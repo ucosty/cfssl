@@ -4,9 +4,9 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"github.com/cloudflare/cfssl/certdb"
 	"time"
-
+	
+	"github.com/cloudflare/cfssl/certdb"
 	cferr "github.com/cloudflare/cfssl/errors"
 	"github.com/kisielk/sqlstruct"
 )

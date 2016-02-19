@@ -38,3 +38,4 @@ type Accessor interface {
 	UpdateOCSP(serial, aki, body string, expiry time.Time) error
 	UpsertOCSP(serial, aki, body string, expiry time.Time) error
 }
+

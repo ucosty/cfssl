@@ -6,8 +6,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/cloudflare/cfssl/certdb/dbconf"
-	"github.com/cloudflare/cfssl/certdb/sql"
+	"github.com/cloudflare/cfssl/certdb/factory"
 	"github.com/cloudflare/cfssl/cli"
 	"github.com/cloudflare/cfssl/helpers"
 	"github.com/cloudflare/cfssl/log"
@@ -51,12 +50,7 @@ func ocsprefreshMain(args []string, c cli.Config) error {
 		return err
 	}
 
-	db, err := dbconf.DBFromConfig(c.DBConfigFile)
-	if err != nil {
-		return err
-	}
-
-	dbAccessor := sql.NewAccessor(db)
+	dbAccessor := certdbfactory.NewAccessor(c.DBConfigFile)
 	certs, err := dbAccessor.GetUnexpiredCertificates()
 	if err != nil {
 		return err
