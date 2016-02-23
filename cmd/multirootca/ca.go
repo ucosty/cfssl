@@ -8,13 +8,13 @@ import (
 	"net"
 	"net/http"
 
-	"github.com/cloudflare/cfssl/api/info"
-	"github.com/cloudflare/cfssl/certdb/sql"
-	"github.com/cloudflare/cfssl/log"
-	"github.com/cloudflare/cfssl/multiroot/config"
-	"github.com/cloudflare/cfssl/signer"
-	"github.com/cloudflare/cfssl/signer/local"
-	"github.com/cloudflare/cfssl/whitelist"
+	"github.com/ucosty/cfssl/api/info"
+	"github.com/ucosty/cfssl/certdb/sql"
+	"github.com/ucosty/cfssl/log"
+	"github.com/ucosty/cfssl/multiroot/config"
+	"github.com/ucosty/cfssl/signer"
+	"github.com/ucosty/cfssl/signer/local"
+	"github.com/ucosty/cfssl/whitelist"
 )
 
 func parseSigner(root *config.Root) (signer.Signer, error) {

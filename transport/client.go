@@ -6,12 +6,12 @@ import (
 	"os"
 	"time"
 
-	"github.com/cloudflare/cfssl/csr"
-	"github.com/cloudflare/cfssl/log"
-	"github.com/cloudflare/cfssl/transport/ca"
-	"github.com/cloudflare/cfssl/transport/core"
-	"github.com/cloudflare/cfssl/transport/kp"
-	"github.com/cloudflare/cfssl/transport/roots"
+	"github.com/ucosty/cfssl/csr"
+	"github.com/ucosty/cfssl/log"
+	"github.com/ucosty/cfssl/transport/ca"
+	"github.com/ucosty/cfssl/transport/core"
+	"github.com/ucosty/cfssl/transport/kp"
+	"github.com/ucosty/cfssl/transport/roots"
 )
 
 func envOrDefault(key, def string) string {

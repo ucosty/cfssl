@@ -15,10 +15,10 @@ import (
 	"math/big"
 	"time"
 
-	"github.com/cloudflare/cfssl/config"
-	cferr "github.com/cloudflare/cfssl/errors"
-	"github.com/cloudflare/cfssl/helpers"
-	"github.com/cloudflare/cfssl/signer"
+	"github.com/ucosty/cfssl/config"
+	cferr "github.com/ucosty/cfssl/errors"
+	"github.com/ucosty/cfssl/helpers"
+	"github.com/ucosty/cfssl/signer"
 )
 
 const threeMonths = 2190 * time.Hour

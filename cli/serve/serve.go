@@ -14,26 +14,26 @@ import (
 	"strings"
 
 	rice "github.com/GeertJohan/go.rice"
-	"github.com/cloudflare/cfssl/api/bundle"
-	"github.com/cloudflare/cfssl/api/certinfo"
-	"github.com/cloudflare/cfssl/api/crl"
-	"github.com/cloudflare/cfssl/api/generator"
-	"github.com/cloudflare/cfssl/api/info"
-	"github.com/cloudflare/cfssl/api/initca"
-	apiocsp "github.com/cloudflare/cfssl/api/ocsp"
-	"github.com/cloudflare/cfssl/api/revoke"
-	"github.com/cloudflare/cfssl/api/scan"
-	"github.com/cloudflare/cfssl/api/signhandler"
-	"github.com/cloudflare/cfssl/bundler"
-	certsql "github.com/cloudflare/cfssl/certdb/couchbase"
-	"github.com/cloudflare/cfssl/cli"
-	ocspsign "github.com/cloudflare/cfssl/cli/ocspsign"
-	"github.com/cloudflare/cfssl/cli/sign"
-	"github.com/cloudflare/cfssl/helpers"
-	"github.com/cloudflare/cfssl/log"
-	"github.com/cloudflare/cfssl/ocsp"
-	"github.com/cloudflare/cfssl/signer"
-	"github.com/cloudflare/cfssl/ubiquity"
+	"github.com/ucosty/cfssl/api/bundle"
+	"github.com/ucosty/cfssl/api/certinfo"
+	"github.com/ucosty/cfssl/api/crl"
+	"github.com/ucosty/cfssl/api/generator"
+	"github.com/ucosty/cfssl/api/info"
+	"github.com/ucosty/cfssl/api/initca"
+	apiocsp "github.com/ucosty/cfssl/api/ocsp"
+	"github.com/ucosty/cfssl/api/revoke"
+	"github.com/ucosty/cfssl/api/scan"
+	"github.com/ucosty/cfssl/api/signhandler"
+	"github.com/ucosty/cfssl/bundler"
+	certdbfactory "github.com/ucosty/cfssl/certdb/factory"
+	"github.com/ucosty/cfssl/cli"
+	ocspsign "github.com/ucosty/cfssl/cli/ocspsign"
+	"github.com/ucosty/cfssl/cli/sign"
+	"github.com/ucosty/cfssl/helpers"
+	"github.com/ucosty/cfssl/log"
+	"github.com/ucosty/cfssl/ocsp"
+	"github.com/ucosty/cfssl/signer"
+	"github.com/ucosty/cfssl/ubiquity"
 )
 
 // Usage text of 'cfssl serve'
@@ -174,10 +174,11 @@ var endpoints = map[string]func() (http.Handler, error){
 	},
 
 	"revoke": func() (http.Handler, error) {
-		// if db == nil {
-		// 	return nil, errNoCertDBConfigured
-		// }
-		return revoke.NewHandler(certsql.NewAccessor(conf.DBConfigFile)), nil
+		dbAccessor := certdbfactory.NewAccessor(conf.DBConfigFile)
+		if dbAccessor == nil {
+			return nil, errNoCertDBConfigured
+		}
+		return revoke.NewHandler(dbAccessor), nil
 	},
 
 	"/": func() (http.Handler, error) {
@@ -222,7 +223,7 @@ func serverMain(args []string, c cli.Config) error {
 
 	log.Info("Initializing signer")
 
-	if s, err = sign.SignerFromConfigAndDB(c); err != nil {
+	if s, err = sign.SignerFromConfigAndDB(conf); err != nil {
 		log.Warningf("couldn't initialize signer: %v", err)
 	}
 

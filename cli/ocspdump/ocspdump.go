@@ -6,8 +6,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/cloudflare/cfssl/certdb/factory"
-	"github.com/cloudflare/cfssl/cli"
+	"github.com/ucosty/cfssl/certdb/factory"
+	"github.com/ucosty/cfssl/cli"
 )
 
 // Usage text of 'cfssl ocspdump'

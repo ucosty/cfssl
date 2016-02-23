@@ -3,7 +3,7 @@ package gencert
 import (
 	"testing"
 
-	"github.com/cloudflare/cfssl/cli"
+	"github.com/ucosty/cfssl/cli"
 )
 
 func TestGencertMain(t *testing.T) {

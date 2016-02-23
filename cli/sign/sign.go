@@ -5,12 +5,12 @@ import (
 	"encoding/json"
 	"io/ioutil"
 
-	certsql "github.com/cloudflare/cfssl/certdb/couchbase"
-	"github.com/cloudflare/cfssl/cli"
-	"github.com/cloudflare/cfssl/config"
-	"github.com/cloudflare/cfssl/log"
-	"github.com/cloudflare/cfssl/signer"
-	"github.com/cloudflare/cfssl/signer/universal"
+	certdbfactory "github.com/ucosty/cfssl/certdb/factory"
+	"github.com/ucosty/cfssl/cli"
+	"github.com/ucosty/cfssl/config"
+	"github.com/ucosty/cfssl/log"
+	"github.com/ucosty/cfssl/signer"
+	"github.com/ucosty/cfssl/signer/universal"
 )
 
 // Usage text of 'cfssl sign'
@@ -61,10 +61,10 @@ func SignerFromConfigAndDB(c cli.Config) (signer.Signer, error) {
 		return nil, err
 	}
 
-	//if db != nil {
-		dbAccessor := certsql.NewAccessor(c.DBConfigFile)
+	dbAccessor := certdbfactory.NewAccessor(c.DBConfigFile)
+	if dbAccessor != nil {
 		s.SetDBAccessor(dbAccessor)
-	//}
+	}
 
 	return s, nil
 }

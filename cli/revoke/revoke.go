@@ -4,10 +4,10 @@ package revoke
 import (
 	"errors"
 	// "fmt"
-	"github.com/cloudflare/cfssl/certdb/factory"
-	"github.com/cloudflare/cfssl/cli"
-	"github.com/cloudflare/cfssl/log"
-	"github.com/cloudflare/cfssl/ocsp"
+	"github.com/ucosty/cfssl/certdb/factory"
+	"github.com/ucosty/cfssl/cli"
+	"github.com/ucosty/cfssl/log"
+	"github.com/ucosty/cfssl/ocsp"
 )
 
 var revokeUsageTxt = `cfssl revoke -- revoke a certificate in the certificate store
@@ -42,13 +42,13 @@ func revokeMain(args []string, c cli.Config) error {
 	}
 
 	dbAccessor := certdbfactory.NewAccessor(c.DBConfigFile)
-	
+
 	reasonCode, err := ocsp.ReasonStringToCode(c.Reason)
 	if err != nil {
 		log.Error("Invalid reason code: ", err)
 		return err
 	}
-	
+
 	return dbAccessor.RevokeCertificate(c.Serial, c.AKI, reasonCode)
 }
 

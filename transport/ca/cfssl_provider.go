@@ -9,12 +9,12 @@ import (
 	"net"
 	"path/filepath"
 
-	"github.com/cloudflare/cfssl/api/client"
-	"github.com/cloudflare/cfssl/auth"
-	"github.com/cloudflare/cfssl/config"
-	"github.com/cloudflare/cfssl/info"
-	"github.com/cloudflare/cfssl/signer"
-	"github.com/cloudflare/cfssl/transport/core"
+	"github.com/ucosty/cfssl/api/client"
+	"github.com/ucosty/cfssl/auth"
+	"github.com/ucosty/cfssl/config"
+	"github.com/ucosty/cfssl/info"
+	"github.com/ucosty/cfssl/signer"
+	"github.com/ucosty/cfssl/transport/core"
 )
 
 type authError struct {

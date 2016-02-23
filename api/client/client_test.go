@@ -1,7 +1,7 @@
 package client
 
 import (
-	"github.com/cloudflare/cfssl/auth"
+	"github.com/ucosty/cfssl/auth"
 	"net"
 	"testing"
 )

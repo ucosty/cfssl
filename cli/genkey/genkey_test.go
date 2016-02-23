@@ -7,7 +7,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/cloudflare/cfssl/cli"
+	"github.com/ucosty/cfssl/cli"
 )
 
 type stdoutRedirect struct {

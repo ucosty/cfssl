@@ -1,186 +1,249 @@
 package couchbase
 
 import (
-    "fmt"
-    "time"
-    "encoding/json"
-    "github.com/couchbase/gocb"
-    "io/ioutil"
-    "github.com/cloudflare/cfssl/certdb"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"github.com/couchbase/gocb"
+	"github.com/ucosty/cfssl/certdb"
+	cferr "github.com/ucosty/cfssl/errors"
+	"io/ioutil"
+	"time"
 )
 
 type CouchbaseAccessor struct {
-    bucketName string
-    couchbase *gocb.Cluster
-    bucket *gocb.Bucket
-    config map[string]string
+	bucketName string
+	couchbase  *gocb.Cluster
+	bucket     *gocb.Bucket
+	config     map[string]string
 }
 
 type CertificateWrapper struct {
-    DocumentType string
-    Record       certdb.CertificateRecord
+	Type   string                   `json:"type,omitempty"`
+	Record certdb.CertificateRecord `json:"record,omitempty"`
 }
 
 type OCSPWrapper struct {
-    DocumentType string
-    Record       certdb.OCSPRecord
+	Type   string            `json:"type,omitempty"`
+	Record certdb.OCSPRecord `json:"record,omitempty"`
 }
 
 const (
-    certificatePrefix = `cert-`
-    OCSPPrefix = `ocsp-`
-    getUnexpiredOCSPN1QL = `SELECT * FROM %s WHERE DocumentType='ocsp' AND STR_TO_MILLIS(Record.Expiry) > NOW_MILLIS();`
-    getUnexpiredCertificatesN1QL = `SELECT * FROM %s WHERE DocumentType='certificate' AND STR_TO_MILLIS(Record.Expiry) > NOW_MILLIS();`
+	ocspType              = `ocsp`
+	certificateType       = `certificate`
+	ocspIdTemplate        = ocspType + `:%s:%s`
+	certificateIdTemplate = certificateType + `:%s:%s`
+	getUnexpiredN1QL      = `SELECT * FROM %s WHERE type='%s' AND STR_TO_MILLIS(record.expiry) > NOW_MILLIS();`
 )
 
-func NewAccessor(config string) *CouchbaseAccessor {
-    // Load the database configuration
-    accessor := new(CouchbaseAccessor)
-    err := accessor.LoadConfiguration(config)
-    if err != nil {
-        return nil
-    }
+func ocspId(serial, aki string) string {
+	return fmt.Sprintf(ocspIdTemplate, serial, aki)
+}
 
-    cb, err := gocb.Connect(accessor.config["uri"])
-    if err != nil {
-        return nil
-    }
-    accessor.SetCouchbase(cb)
-    accessor.SetBucket(accessor.config["bucket"], accessor.config["password"])
-    return accessor
+func certificateId(serial, aki string) string {
+	return fmt.Sprintf(certificateIdTemplate, serial, aki)
+}
+
+func (d *CouchbaseAccessor) checkBucket() error {
+	if d.bucket == nil {
+		return cferr.Wrap(cferr.CertStoreError, cferr.Unknown,
+			errors.New("Unknown bucket object, please check SetBucket method"))
+	}
+	return nil
+}
+
+func NewAccessor(config string) *CouchbaseAccessor {
+	// Load the database configuration
+	accessor := new(CouchbaseAccessor)
+	err := accessor.LoadConfiguration(config)
+	if err != nil {
+		return nil
+	}
+
+	cb, err := gocb.Connect(accessor.config["uri"])
+	if err != nil {
+		return nil
+	}
+	accessor.SetCouchbase(cb)
+	accessor.SetBucket(accessor.config["bucket"], accessor.config["password"])
+	return accessor
 }
 
 func (d *CouchbaseAccessor) LoadConfiguration(config string) error {
-    body, err := ioutil.ReadFile(config)
-    json.Unmarshal(body, &d.config)
+	body, err := ioutil.ReadFile(config)
+	json.Unmarshal(body, &d.config)
 
-    if _, ok := d.config["uri"]; !ok {
-        fmt.Println("Could not find confiugration option 'uri' in " + config)
-        return nil
-    }
+	if _, ok := d.config["uri"]; !ok {
+		fmt.Println("Could not find configuration option 'uri' in " + config)
+		return nil
+	}
 
-    if _, ok := d.config["bucket"]; !ok {
-        fmt.Println("Could not find confiugration option 'bucket' in " + config)
-        return nil
-    }
+	if _, ok := d.config["bucket"]; !ok {
+		fmt.Println("Could not find configuration option 'bucket' in " + config)
+		return nil
+	}
 
-    if _, ok := d.config["password"]; !ok {
-        d.config["password"] = ""
-    }
+	if _, ok := d.config["password"]; !ok {
+		d.config["password"] = ""
+	}
 
-    return err
+	return err
 }
 
 func (d *CouchbaseAccessor) SetCouchbase(cb *gocb.Cluster) {
-    d.couchbase = cb
+	d.couchbase = cb
 }
 
 func (d *CouchbaseAccessor) SetBucket(bucket string, password string) {
-    d.bucketName = bucket
-    d.bucket, _ = d.couchbase.OpenBucket(d.bucketName, password)
+	d.bucketName = bucket
+	d.bucket, _ = d.couchbase.OpenBucket(d.bucketName, password)
 }
 
+// PK is serial + aki
 func (d *CouchbaseAccessor) InsertCertificate(cr certdb.CertificateRecord) error {
-    _, err := d.bucket.Insert(certificatePrefix + cr.Serial, &CertificateWrapper{DocumentType: "certificate", Record: cr}, 0)
-    return err
+	err := d.checkBucket()
+	if err != nil {
+		return err
+	}
+
+	_, err = d.bucket.Insert(certificateId(cr.Serial, cr.AKI), &CertificateWrapper{Type: certificateType, Record: cr}, 0)
+	return err
 }
 
 func (d *CouchbaseAccessor) GetCertificate(serial, aki string) (crs []certdb.CertificateRecord, err error) {
-    var certificate CertificateWrapper
-    _, err = d.bucket.Get(certificatePrefix + serial, &certificate)
-    if certificate.Record.AKI != aki {
-        return nil, nil
-    }
-    crs = append(crs, certificate.Record)
-    return crs, err
+	err = d.checkBucket()
+	if err != nil {
+		return nil, err
+	}
+
+	var certificate CertificateWrapper
+	_, err = d.bucket.Get(certificateId(serial, aki), &certificate)
+	crs = append(crs, certificate.Record)
+	return crs, err
 }
 
 func (d *CouchbaseAccessor) GetUnexpiredCertificates() (crs []certdb.CertificateRecord, err error) {
-    query := gocb.NewN1qlQuery(fmt.Sprintf(getUnexpiredCertificatesN1QL, d.bucketName))
-    records, err := d.bucket.ExecuteN1qlQuery(query, nil)
+	err = d.checkBucket()
+	if err != nil {
+		return nil, err
+	}
 
-    var row interface{}
-    for records.Next(&row) {
-        certificate_data, _ := row.(map[string]interface{})
-        var certificate CertificateWrapper
-        certificateJSON, _ := json.Marshal(certificate_data[d.bucketName])
-        json.Unmarshal(certificateJSON, &certificate)
-        crs = append(crs, certificate.Record)
-    }
-    return crs, nil
+	query := gocb.NewN1qlQuery(fmt.Sprintf(getUnexpiredN1QL, d.bucketName, certificateType)).Consistency(gocb.RequestPlus).AdHoc(false)
+	records, err := d.bucket.ExecuteN1qlQuery(query, nil)
+
+	if err != nil {
+		return nil, err
+	}
+
+	var row interface{}
+	for records.Next(&row) {
+		certificate_data, _ := row.(map[string]interface{})
+		var certificate CertificateWrapper
+		certificateJSON, _ := json.Marshal(certificate_data[d.bucketName])
+		json.Unmarshal(certificateJSON, &certificate)
+		crs = append(crs, certificate.Record)
+	}
+	records.Close()
+	return crs, nil
 }
 
 func (d *CouchbaseAccessor) RevokeCertificate(serial, aki string, reasonCode int) error {
-    certificate := new(CertificateWrapper)
-    cas, _ := d.bucket.Get(certificatePrefix + serial, &certificate)
-    if certificate.Record.AKI != aki {
-        return nil
-    }
-    certificate.Record.Status = "revoked"
-    certificate.Record.RevokedAt = time.Now().UTC()
-    certificate.Record.Reason = reasonCode
+	err := d.checkBucket()
+	if err != nil {
+		return err
+	}
 
-    _, err := d.bucket.Replace(certificatePrefix + serial, certificate, cas, 0)
-    return err
+	certificateId := certificateId(serial, aki)
+	certificate := new(CertificateWrapper)
+	cas, _ := d.bucket.Get(certificateId, &certificate)
+	certificate.Record.Status = "revoked"
+	certificate.Record.RevokedAt = time.Now().UTC()
+	certificate.Record.Reason = reasonCode
+
+	_, err = d.bucket.Replace(certificateId, certificate, cas, 0)
+	return err
 }
 
 func (d *CouchbaseAccessor) InsertOCSP(rr certdb.OCSPRecord) error {
-    _, err := d.bucket.Insert(OCSPPrefix + rr.Serial, &OCSPWrapper{DocumentType: "ocsp", Record: rr}, 0)
-    return err
+	err := d.checkBucket()
+	if err != nil {
+		return err
+	}
+
+	_, err = d.bucket.Insert(ocspId(rr.Serial, rr.AKI), &OCSPWrapper{Type: ocspType, Record: rr}, 0)
+	return err
 }
 
 func (d *CouchbaseAccessor) GetOCSP(serial, aki string) (rrs []certdb.OCSPRecord, err error) {
-    var ocsp OCSPWrapper
-    d.bucket.Get(OCSPPrefix + serial, &ocsp)
-    if ocsp.Record.AKI != aki {
-        return nil, nil
-    }
-    rrs = append(rrs, ocsp.Record)
-    return rrs, nil
+	err = d.checkBucket()
+	if err != nil {
+		return nil, err
+	}
+
+	var ocsp OCSPWrapper
+	d.bucket.Get(ocspId(serial, aki), &ocsp)
+	rrs = append(rrs, ocsp.Record)
+	return rrs, nil
 }
 
 func (d *CouchbaseAccessor) GetUnexpiredOCSPs() (rrs []certdb.OCSPRecord, err error) {
-    query := gocb.NewN1qlQuery(fmt.Sprintf(getUnexpiredOCSPN1QL, d.bucketName))
-    records, err := d.bucket.ExecuteN1qlQuery(query, nil)
+	err = d.checkBucket()
+	if err != nil {
+		return nil, err
+	}
 
-    var row interface{}
-    for records.Next(&row) {
-        ocsp_data, _ := row.(map[string]interface{})
-        var ocsp OCSPWrapper
-        ocspJSON, _ := json.Marshal(ocsp_data[d.bucketName])
-        json.Unmarshal(ocspJSON, &ocsp)
-        rrs = append(rrs, ocsp.Record)
-    }
-    return rrs, nil
+	query := gocb.NewN1qlQuery(fmt.Sprintf(getUnexpiredN1QL, d.bucketName, ocspType)).Consistency(gocb.RequestPlus).AdHoc(false)
+	records, err := d.bucket.ExecuteN1qlQuery(query, nil)
+
+	if err != nil {
+		return nil, err
+	}
+
+	var row interface{}
+	for records.Next(&row) {
+		ocsp_data, _ := row.(map[string]interface{})
+		var ocsp OCSPWrapper
+		ocspJSON, _ := json.Marshal(ocsp_data[d.bucketName])
+		json.Unmarshal(ocspJSON, &ocsp)
+		rrs = append(rrs, ocsp.Record)
+	}
+	records.Close()
+	return rrs, nil
 }
 
 func (d *CouchbaseAccessor) UpdateOCSP(serial, aki, body string, expiry time.Time) error {
-    var ocsp OCSPWrapper
-    cas, _ := d.bucket.Get(OCSPPrefix + serial, &ocsp)
+	err := d.checkBucket()
+	if err != nil {
+		return err
+	}
 
-    if ocsp.Record.AKI != aki {
-        return nil
-    }
+	ocspId := ocspId(serial, aki)
+	var ocsp OCSPWrapper
+	cas, _ := d.bucket.Get(ocspId, &ocsp)
 
-    ocsp.Record.Body = body
-    ocsp.Record.Expiry = expiry
+	ocsp.Record.Body = body
+	ocsp.Record.Expiry = expiry
 
-    _, err := d.bucket.Replace(OCSPPrefix + serial, &ocsp, cas, 0)
-    return err
+	_, err = d.bucket.Replace(ocspId, &ocsp, cas, 0)
+	return err
 }
 
 func (d *CouchbaseAccessor) UpsertOCSP(serial, aki, body string, expiry time.Time) error {
-    var ocsp OCSPWrapper
-    d.bucket.Get(OCSPPrefix + serial, &ocsp)
+	err := d.checkBucket()
+	if err != nil {
+		return err
+	}
 
-    if ocsp.DocumentType != "" && ocsp.Record.AKI != aki {
-        return nil
-    }
+	ocspId := ocspId(serial, aki)
+	var ocsp OCSPWrapper
+	d.bucket.Get(ocspId, &ocsp)
 
-    ocsp.DocumentType = "ocsp"
-    ocsp.Record.Body = body
-    ocsp.Record.Expiry = expiry
+	ocsp.Type = ocspType
+	ocsp.Record.AKI = aki
+	ocsp.Record.Body = body
+	ocsp.Record.Expiry = expiry
+	ocsp.Record.Serial = serial
 
-    _, err := d.bucket.Upsert(OCSPPrefix + serial, &ocsp, 0)
-    return err
+	_, err = d.bucket.Upsert(ocspId, &ocsp, 0)
+	return err
 }

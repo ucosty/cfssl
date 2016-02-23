@@ -4,13 +4,13 @@ package universal
 import (
 	"crypto/x509"
 
-	"github.com/cloudflare/cfssl/certdb"
-	"github.com/cloudflare/cfssl/config"
-	cferr "github.com/cloudflare/cfssl/errors"
-	"github.com/cloudflare/cfssl/info"
-	"github.com/cloudflare/cfssl/signer"
-	"github.com/cloudflare/cfssl/signer/local"
-	"github.com/cloudflare/cfssl/signer/remote"
+	"github.com/ucosty/cfssl/certdb"
+	"github.com/ucosty/cfssl/config"
+	cferr "github.com/ucosty/cfssl/errors"
+	"github.com/ucosty/cfssl/info"
+	"github.com/ucosty/cfssl/signer"
+	"github.com/ucosty/cfssl/signer/local"
+	"github.com/ucosty/cfssl/signer/remote"
 )
 
 // Signer represents a universal signer which is both local and remote

@@ -9,8 +9,8 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/cloudflare/cfssl/log"
 	"github.com/jmhodges/clock"
+	"github.com/ucosty/cfssl/log"
 	"golang.org/x/crypto/ocsp"
 )
 

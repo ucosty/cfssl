@@ -1,31 +1,41 @@
-package sql
+package couchbase
 
 import (
 	"math"
 	"testing"
 	"time"
 
+	"github.com/couchbase/gocb"
 	"github.com/ucosty/cfssl/certdb"
-	"github.com/ucosty/cfssl/certdb/testdb"
 )
 
 const (
-	sqliteDBFile = "../testdb/certstore_development.db"
-	fakeAKI      = "fake_aki"
+	fakeAKI = "fake_aki"
 )
 
 func TestNoDB(t *testing.T) {
-	dba := &Accessor{}
+	dba := &CouchbaseAccessor{}
 	_, err := dba.GetCertificate("foobar serial", "random aki")
 	if err == nil {
 		t.Fatal("should return error")
 	}
 }
 
-func TestSQLite(t *testing.T) {
-	db := testdb.SQLiteDB(sqliteDBFile)
-	dba := NewAccessor(db)
+func TestCouchbase(t *testing.T) {
+	dba := NewAccessor("testdata/db-config.json")
+
+	cleanup(dba.bucket)
+
 	testEverything(dba, t)
+}
+
+func cleanup(bucket *gocb.Bucket) {
+	bucket.Remove("certificate:fake serial:"+fakeAKI, 0)
+	bucket.Remove("certificate:fake serial 2:"+fakeAKI, 0)
+	bucket.Remove("certificate:fake serial 3:"+fakeAKI, 0)
+	bucket.Remove("ocsp:fake serial:"+fakeAKI, 0)
+	bucket.Remove("ocsp:fake serial 2:"+fakeAKI, 0)
+	bucket.Remove("ocsp:fake serial 3:"+fakeAKI, 0)
 }
 
 // roughlySameTime decides if t1 and t2 are close enough.
@@ -114,7 +124,7 @@ func testInsertCertificateAndGetUnexpiredCertificate(dba certdb.Accessor, t *tes
 
 	got := rets[0]
 
-	// relfection comparison with zero time objects are not stable as it seems
+	// reflection comparison with zero time objects are not stable as it seems
 	if want.Serial != got.Serial || want.Status != got.Status ||
 		want.AKI != got.AKI || !got.RevokedAt.IsZero() ||
 		want.PEM != got.PEM || !roughlySameTime(got.Expiry, expiry) {

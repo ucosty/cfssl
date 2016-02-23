@@ -17,10 +17,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cloudflare/cfssl/crypto/pkcs7"
-	cferr "github.com/cloudflare/cfssl/errors"
-	"github.com/cloudflare/cfssl/helpers/derhelpers"
-	"github.com/cloudflare/cfssl/log"
+	"github.com/ucosty/cfssl/crypto/pkcs7"
+	cferr "github.com/ucosty/cfssl/errors"
+	"github.com/ucosty/cfssl/helpers/derhelpers"
+	"github.com/ucosty/cfssl/log"
 	"golang.org/x/crypto/pkcs12"
 )
 

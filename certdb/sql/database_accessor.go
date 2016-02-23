@@ -5,10 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"time"
-	
-	"github.com/cloudflare/cfssl/certdb"
-	cferr "github.com/cloudflare/cfssl/errors"
+
 	"github.com/kisielk/sqlstruct"
+	"github.com/ucosty/cfssl/certdb"
+	cferr "github.com/ucosty/cfssl/errors"
 )
 
 const (

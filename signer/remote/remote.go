@@ -5,12 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 
-	"github.com/cloudflare/cfssl/api/client"
-	"github.com/cloudflare/cfssl/certdb"
-	"github.com/cloudflare/cfssl/config"
-	cferr "github.com/cloudflare/cfssl/errors"
-	"github.com/cloudflare/cfssl/info"
-	"github.com/cloudflare/cfssl/signer"
+	"github.com/ucosty/cfssl/api/client"
+	"github.com/ucosty/cfssl/certdb"
+	"github.com/ucosty/cfssl/config"
+	cferr "github.com/ucosty/cfssl/errors"
+	"github.com/ucosty/cfssl/info"
+	"github.com/ucosty/cfssl/signer"
 )
 
 // A Signer represents a CFSSL instance running as signing server.
