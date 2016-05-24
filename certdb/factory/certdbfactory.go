@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"github.com/ucosty/cfssl/certdb"
 	"github.com/ucosty/cfssl/certdb/couchbase"
+    "github.com/ucosty/cfssl/certdb/consul"
 	cfsslsql "github.com/ucosty/cfssl/certdb/sql"
 	"io/ioutil"
 )
@@ -20,6 +21,8 @@ func NewAccessor(config string) certdb.Accessor {
 	switch options["engine"] {
 	case "couchbase":
 		return couchbase.NewAccessor(config)
+    case "consul":
+        return consul.NewAccessor(config)
 	case "sql":
 		db, err := sql.Open(options["driver"], options["data_source"])
 		if err == nil {

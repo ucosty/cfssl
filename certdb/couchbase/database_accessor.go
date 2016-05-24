@@ -44,11 +44,16 @@ func certificateId(serial, aki string) string {
 	return fmt.Sprintf(certificateIdTemplate, serial, aki)
 }
 
+func (d *CouchbaseAccessor) closeBucket() {
+  d.bucket.Close()
+}
+
 func (d *CouchbaseAccessor) checkBucket() error {
 	if d.bucket == nil {
 		return cferr.Wrap(cferr.CertStoreError, cferr.Unknown,
 			errors.New("Unknown bucket object, please check SetBucket method"))
 	}
+
 	return nil
 }
 
@@ -65,7 +70,6 @@ func NewAccessor(config string) *CouchbaseAccessor {
 		return nil
 	}
 	accessor.SetCouchbase(cb)
-	accessor.SetBucket(accessor.config["bucket"], accessor.config["password"])
 	return accessor
 }
 
@@ -101,16 +105,23 @@ func (d *CouchbaseAccessor) SetBucket(bucket string, password string) {
 
 // PK is serial + aki
 func (d *CouchbaseAccessor) InsertCertificate(cr certdb.CertificateRecord) error {
+  d.SetBucket(d.config["bucket"], d.config["password"])
+  defer d.closeBucket()
 	err := d.checkBucket()
 	if err != nil {
 		return err
 	}
-
+	fmt.Printf("Inserting certificate into bucket %s\n", d.bucketName)
 	_, err = d.bucket.Insert(certificateId(cr.Serial, cr.AKI), &CertificateWrapper{Type: certificateType, Record: cr}, 0)
+    if err != nil {
+    fmt.Printf("Failed to insert document into couchbase: %s\n", err.Error())
+    }
 	return err
 }
 
 func (d *CouchbaseAccessor) GetCertificate(serial, aki string) (crs []certdb.CertificateRecord, err error) {
+  d.SetBucket(d.config["bucket"], d.config["password"])
+  defer d.closeBucket()
 	err = d.checkBucket()
 	if err != nil {
 		return nil, err
@@ -123,6 +134,8 @@ func (d *CouchbaseAccessor) GetCertificate(serial, aki string) (crs []certdb.Cer
 }
 
 func (d *CouchbaseAccessor) GetUnexpiredCertificates() (crs []certdb.CertificateRecord, err error) {
+  d.SetBucket(d.config["bucket"], d.config["password"])
+  defer d.closeBucket()
 	err = d.checkBucket()
 	if err != nil {
 		return nil, err
@@ -148,6 +161,8 @@ func (d *CouchbaseAccessor) GetUnexpiredCertificates() (crs []certdb.Certificate
 }
 
 func (d *CouchbaseAccessor) RevokeCertificate(serial, aki string, reasonCode int) error {
+  d.SetBucket(d.config["bucket"], d.config["password"])
+  defer d.closeBucket()
 	err := d.checkBucket()
 	if err != nil {
 		return err
@@ -165,6 +180,8 @@ func (d *CouchbaseAccessor) RevokeCertificate(serial, aki string, reasonCode int
 }
 
 func (d *CouchbaseAccessor) InsertOCSP(rr certdb.OCSPRecord) error {
+  d.SetBucket(d.config["bucket"], d.config["password"])
+  defer d.closeBucket()
 	err := d.checkBucket()
 	if err != nil {
 		return err
@@ -175,6 +192,8 @@ func (d *CouchbaseAccessor) InsertOCSP(rr certdb.OCSPRecord) error {
 }
 
 func (d *CouchbaseAccessor) GetOCSP(serial, aki string) (rrs []certdb.OCSPRecord, err error) {
+  d.SetBucket(d.config["bucket"], d.config["password"])
+  defer d.closeBucket()
 	err = d.checkBucket()
 	if err != nil {
 		return nil, err
@@ -187,6 +206,8 @@ func (d *CouchbaseAccessor) GetOCSP(serial, aki string) (rrs []certdb.OCSPRecord
 }
 
 func (d *CouchbaseAccessor) GetUnexpiredOCSPs() (rrs []certdb.OCSPRecord, err error) {
+  d.SetBucket(d.config["bucket"], d.config["password"])
+  defer d.closeBucket()
 	err = d.checkBucket()
 	if err != nil {
 		return nil, err
@@ -212,6 +233,8 @@ func (d *CouchbaseAccessor) GetUnexpiredOCSPs() (rrs []certdb.OCSPRecord, err er
 }
 
 func (d *CouchbaseAccessor) UpdateOCSP(serial, aki, body string, expiry time.Time) error {
+  d.SetBucket(d.config["bucket"], d.config["password"])
+  defer d.closeBucket()
 	err := d.checkBucket()
 	if err != nil {
 		return err
@@ -229,6 +252,8 @@ func (d *CouchbaseAccessor) UpdateOCSP(serial, aki, body string, expiry time.Tim
 }
 
 func (d *CouchbaseAccessor) UpsertOCSP(serial, aki, body string, expiry time.Time) error {
+  d.SetBucket(d.config["bucket"], d.config["password"])
+  defer d.closeBucket()
 	err := d.checkBucket()
 	if err != nil {
 		return err
