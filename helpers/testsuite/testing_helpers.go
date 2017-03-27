@@ -4,20 +4,20 @@ package testsuite
 
 import (
 	"bufio"
-	"testing"
-	// "crypto/tls"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/ioutil"
 	"os"
 	"os/exec"
 	"strconv"
 	"strings"
+	"testing"
 	"time"
 
-	"github.com/cloudflare/cfssl/config"
-	"github.com/cloudflare/cfssl/csr"
-	// "github.com/cloudflare/cfssl/helpers/testsuite/stoppable"
+
+	"github.com/ucosty/cfssl/config"
+	"github.com/ucosty/cfssl/csr"
 )
 
 // CFSSLServerData is the data with which a server is initialized. These fields
@@ -187,7 +187,7 @@ func CreateSelfSignedCert(request csr.CertificateRequest) (encodedCert, encodedK
 	CLIOutput, err := command.CombinedOutput()
 	if err != nil {
 		os.Remove(tempFile)
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("%v - CLI output: %s", err, string(CLIOutput))
 	}
 	err = checkCLIOutput(CLIOutput)
 	if err != nil {
@@ -230,7 +230,7 @@ func SignCertificate(request csr.CertificateRequest, signerCert, signerKey []byt
 	CLIOutput, err := command.CombinedOutput()
 	if err != nil {
 		os.Remove(tempJSONFile)
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("%v - CLI output: %s", err, string(CLIOutput))
 	}
 	err = checkCLIOutput(CLIOutput)
 	if err != nil {
@@ -285,10 +285,15 @@ func SignCertificate(request csr.CertificateRequest, signerCert, signerKey []byt
 		tempCSRFile,
 	)
 	CLIOutput, err = command.CombinedOutput()
+	if err != nil {
+		return nil, nil, fmt.Errorf("%v - CLI output: %s", err, string(CLIOutput))
+	}
+
 	err = checkCLIOutput(CLIOutput)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("%v - CLI output: %s", err, string(CLIOutput))
 	}
+
 	encodedCert, err = cleanCLIOutput(CLIOutput, "cert")
 	if err != nil {
 		return nil, nil, err

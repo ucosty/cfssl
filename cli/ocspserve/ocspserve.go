@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/cloudflare/cfssl/cli"
-	"github.com/cloudflare/cfssl/log"
-	"github.com/cloudflare/cfssl/ocsp"
+	"github.com/ucosty/cfssl/cli"
+	"github.com/ucosty/cfssl/log"
+	"github.com/ucosty/cfssl/ocsp"
 )
 
 // Usage text of 'cfssl serve'
@@ -41,7 +41,7 @@ func ocspServerMain(args []string, c cli.Config) error {
 	}
 
 	log.Info("Registering OCSP responder handler")
-	http.Handle(c.Path, ocsp.Responder{Source: src})
+	http.Handle(c.Path, ocsp.NewResponder(src))
 
 	addr := fmt.Sprintf("%s:%d", c.Address, c.Port)
 	log.Info("Now listening on ", addr)

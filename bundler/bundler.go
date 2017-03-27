@@ -21,10 +21,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cloudflare/cfssl/errors"
-	"github.com/cloudflare/cfssl/helpers"
-	"github.com/cloudflare/cfssl/log"
-	"github.com/cloudflare/cfssl/ubiquity"
+	"github.com/ucosty/cfssl/errors"
+	"github.com/ucosty/cfssl/helpers"
+	"github.com/ucosty/cfssl/log"
+	"github.com/ucosty/cfssl/ubiquity"
 )
 
 // IntermediateStash contains the path to the directory where
@@ -161,6 +161,7 @@ func (b *Bundler) VerifyOptions() x509.VerifyOptions {
 		Intermediates: b.IntermediatePool,
 		KeyUsages: []x509.ExtKeyUsage{
 			x509.ExtKeyUsageServerAuth,
+			x509.ExtKeyUsageClientAuth,
 			x509.ExtKeyUsageMicrosoftServerGatedCrypto,
 			x509.ExtKeyUsageNetscapeServerGatedCrypto,
 		},
@@ -600,27 +601,20 @@ func (b *Bundler) Bundle(certs []*x509.Certificate, key crypto.Signer, flavor Bu
 			return nil, errors.New(errors.CertificateError, errors.SelfSigned)
 		}
 
-		// verify and store input intermediates to the intermediate pool.
-		// Ignore the returned error here, will treat it in the second call.
-		b.fetchIntermediates(certs)
-
 		chains, err := cert.Verify(b.VerifyOptions())
 		if err != nil {
 			log.Debugf("verification failed: %v", err)
 			// If the error was an unknown authority, try to fetch
 			// the intermediate specified in the AIA and add it to
 			// the intermediates bundle.
-			switch err := err.(type) {
-			case x509.UnknownAuthorityError:
-				// Do nothing -- have the default case return out.
-			default:
+			if _, ok := err.(x509.UnknownAuthorityError); !ok {
 				return nil, errors.Wrap(errors.CertificateError, errors.VerifyFailed, err)
 			}
 
 			log.Debugf("searching for intermediates via AIA issuer")
-			err = b.fetchIntermediates(certs)
-			if err != nil {
-				log.Debugf("search failed: %v", err)
+			searchErr := b.fetchIntermediates(certs)
+			if searchErr != nil {
+				log.Debugf("search failed: %v", searchErr)
 				return nil, errors.Wrap(errors.CertificateError, errors.VerifyFailed, err)
 			}
 
@@ -652,7 +646,6 @@ func (b *Bundler) Bundle(certs []*x509.Certificate, key crypto.Signer, flavor Bu
 	var messages []string
 	// Check if bundle is expiring.
 	expiringCerts := checkExpiringCerts(bundle.Chain)
-	bundle.Expires = helpers.ExpiryTime(bundle.Chain)
 	if len(expiringCerts) > 0 {
 		statusCode |= errors.BundleExpiringBit
 		messages = append(messages, expirationWarning(expiringCerts))
@@ -709,6 +702,8 @@ func (b *Bundler) Bundle(certs []*x509.Certificate, key crypto.Signer, flavor Bu
 	}
 
 	bundle.Status.IsRebundled = diff(bundle.Chain, certs)
+	bundle.Expires = helpers.ExpiryTime(bundle.Chain)
+	bundle.LeafExpires = bundle.Chain[0].NotAfter
 
 	log.Debugf("bundle complete")
 	return bundle, nil

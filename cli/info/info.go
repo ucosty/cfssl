@@ -5,12 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/cloudflare/cfssl/api/client"
-	"github.com/cloudflare/cfssl/cli"
-	"github.com/cloudflare/cfssl/cli/sign"
-	"github.com/cloudflare/cfssl/errors"
-	"github.com/cloudflare/cfssl/helpers"
-	"github.com/cloudflare/cfssl/info"
+	"github.com/ucosty/cfssl/api/client"
+	"github.com/ucosty/cfssl/cli"
+	"github.com/ucosty/cfssl/cli/sign"
+	"github.com/ucosty/cfssl/errors"
+	"github.com/ucosty/cfssl/helpers"
+	"github.com/ucosty/cfssl/info"
 
 	goerr "errors"
 )
@@ -32,8 +32,15 @@ func getInfoFromRemote(c cli.Config) (resp *info.Resp, err error) {
 	req.Label = c.Label
 	req.Profile = c.Profile
 
-	serv := client.NewServer(c.Remote)
-
+	cert, err := helpers.LoadClientCertificate(c.MutualTLSCertFile, c.MutualTLSKeyFile)
+	if err != nil {
+		return
+	}
+	remoteCAs, err := helpers.LoadPEMCertPool(c.TLSRemoteCAs)
+	if err != nil {
+		return
+	}
+	serv := client.NewServerTLS(c.Remote, helpers.CreateTLSConfig(remoteCAs, cert))
 	reqJSON, _ := json.Marshal(req)
 	resp, err = serv.Info(reqJSON)
 	if err != nil {

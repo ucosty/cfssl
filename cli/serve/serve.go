@@ -3,7 +3,6 @@ package serve
 
 import (
 	"crypto/tls"
-	"database/sql"
 	"errors"
 	"fmt"
 	"net"
@@ -14,28 +13,33 @@ import (
 	"strconv"
 	"strings"
 
+	certdbfactory "github.com/ucosty/cfssl/certdb/factory"
 	rice "github.com/GeertJohan/go.rice"
-	"github.com/cloudflare/cfssl/api/bundle"
-	"github.com/cloudflare/cfssl/api/certinfo"
-	"github.com/cloudflare/cfssl/api/crl"
-	"github.com/cloudflare/cfssl/api/generator"
-	"github.com/cloudflare/cfssl/api/info"
-	"github.com/cloudflare/cfssl/api/initca"
-	apiocsp "github.com/cloudflare/cfssl/api/ocsp"
-	"github.com/cloudflare/cfssl/api/revoke"
-	"github.com/cloudflare/cfssl/api/scan"
-	"github.com/cloudflare/cfssl/api/signhandler"
-	"github.com/cloudflare/cfssl/bundler"
-	"github.com/cloudflare/cfssl/certdb/dbconf"
-	certsql "github.com/cloudflare/cfssl/certdb/sql"
-	"github.com/cloudflare/cfssl/cli"
-	ocspsign "github.com/cloudflare/cfssl/cli/ocspsign"
-	"github.com/cloudflare/cfssl/cli/sign"
-	"github.com/cloudflare/cfssl/helpers"
-	"github.com/cloudflare/cfssl/log"
-	"github.com/cloudflare/cfssl/ocsp"
-	"github.com/cloudflare/cfssl/signer"
-	"github.com/cloudflare/cfssl/ubiquity"
+	"github.com/ucosty/cfssl/api"
+	"github.com/ucosty/cfssl/api/bundle"
+	"github.com/ucosty/cfssl/api/certinfo"
+	"github.com/ucosty/cfssl/api/crl"
+	"github.com/ucosty/cfssl/api/gencrl"
+	"github.com/ucosty/cfssl/api/generator"
+	"github.com/ucosty/cfssl/api/info"
+	"github.com/ucosty/cfssl/api/initca"
+	apiocsp "github.com/ucosty/cfssl/api/ocsp"
+	"github.com/ucosty/cfssl/api/revoke"
+	"github.com/ucosty/cfssl/api/scan"
+	"github.com/ucosty/cfssl/api/signhandler"
+	"github.com/ucosty/cfssl/bundler"
+	// "github.com/ucosty/cfssl/certdb/dbconf"
+	certsql "github.com/ucosty/cfssl/certdb/sql"
+	"github.com/ucosty/cfssl/cli"
+	ocspsign "github.com/ucosty/cfssl/cli/ocspsign"
+	"github.com/ucosty/cfssl/cli/sign"
+	"github.com/ucosty/cfssl/helpers"
+	"github.com/ucosty/cfssl/log"
+	"github.com/ucosty/cfssl/ocsp"
+	"github.com/ucosty/cfssl/signer"
+	"github.com/ucosty/cfssl/ubiquity"
+
+	"github.com/jmoiron/sqlx"
 )
 
 // Usage text of 'cfssl serve'
@@ -46,20 +50,23 @@ Usage of serve:
                     [-ca-key key] [-int-bundle bundle] [-int-dir dir] [-port port] \
                     [-metadata file] [-remote remote_host] [-config config] \
                     [-responder cert] [-responder-key key] [-tls-cert cert] [-tls-key key] \
-                    [-mutual-tls-ca ca] [-mutual-tls-cn regex] [-db-config db-config]
+                    [-mutual-tls-ca ca] [-mutual-tls-cn regex] \
+                    [-tls-remote-ca ca] [-mutual-tls-client-cert cert] [-mutual-tls-client-key key] \
+                    [-db-config db-config]
 
 Flags:
 `
 
 // Flags used by 'cfssl serve'
 var serverFlags = []string{"address", "port", "ca", "ca-key", "ca-bundle", "int-bundle", "int-dir", "metadata",
-	"remote", "config", "responder", "responder-key", "tls-key", "tls-cert", "mutual-tls-ca", "mutual-tls-cn", "db-config"}
+	"remote", "config", "responder", "responder-key", "tls-key", "tls-cert", "mutual-tls-ca", "mutual-tls-cn",
+	"tls-remote-ca", "mutual-tls-client-cert", "mutual-tls-client-key", "db-config"}
 
 var (
 	conf       cli.Config
 	s          signer.Signer
 	ocspSigner ocsp.Signer
-	db         *sql.DB
+	db         *sqlx.DB
 )
 
 // V1APIPrefix is the prefix of all CFSSL V1 API Endpoints.
@@ -114,14 +121,40 @@ var endpoints = map[string]func() (http.Handler, error){
 		if s == nil {
 			return nil, errBadSigner
 		}
-		return signhandler.NewHandlerFromSigner(s)
+
+		h, err := signhandler.NewHandlerFromSigner(s)
+		if err != nil {
+			return nil, err
+		}
+
+		if conf.CABundleFile != "" && conf.IntBundleFile != "" {
+			sh := h.Handler.(*signhandler.Handler)
+			if err := sh.SetBundler(conf.CABundleFile, conf.IntBundleFile); err != nil {
+				return nil, err
+			}
+		}
+
+		return h, nil
 	},
 
 	"authsign": func() (http.Handler, error) {
 		if s == nil {
 			return nil, errBadSigner
 		}
-		return signhandler.NewAuthHandlerFromSigner(s)
+
+		h, err := signhandler.NewAuthHandlerFromSigner(s)
+		if err != nil {
+			return nil, err
+		}
+
+		if conf.CABundleFile != "" && conf.IntBundleFile != "" {
+			sh := h.(api.HTTPHandler).Handler.(*signhandler.AuthHandler)
+			if err := sh.SetBundler(conf.CABundleFile, conf.IntBundleFile); err != nil {
+				return nil, err
+			}
+		}
+
+		return h, nil
 	},
 
 	"info": func() (http.Handler, error) {
@@ -131,18 +164,37 @@ var endpoints = map[string]func() (http.Handler, error){
 		return info.NewHandler(s)
 	},
 
+	"crl": func() (http.Handler, error) {
+		if s == nil {
+			return nil, errBadSigner
+		}
+
+		if db == nil {
+			return nil, errNoCertDBConfigured
+		}
+
+		return crl.NewHandler(certsql.NewAccessor(db), conf.CAFile, conf.CAKeyFile)
+	},
+
 	"gencrl": func() (http.Handler, error) {
 		if s == nil {
 			return nil, errBadSigner
 		}
-		return crl.NewHandler(), nil
+		return gencrl.NewHandler(), nil
 	},
 
 	"newcert": func() (http.Handler, error) {
 		if s == nil {
 			return nil, errBadSigner
 		}
-		return generator.NewCertGeneratorHandlerFromSigner(generator.CSRValidate, s), nil
+		h := generator.NewCertGeneratorHandlerFromSigner(generator.CSRValidate, s)
+		if conf.CABundleFile != "" && conf.IntBundleFile != "" {
+			cg := h.(api.HTTPHandler).Handler.(*generator.CertGeneratorHandler)
+			if err := cg.SetBundler(conf.CABundleFile, conf.IntBundleFile); err != nil {
+				return nil, err
+			}
+		}
+		return h, nil
 	},
 
 	"bundle": func() (http.Handler, error) {
@@ -177,10 +229,11 @@ var endpoints = map[string]func() (http.Handler, error){
 	},
 
 	"revoke": func() (http.Handler, error) {
-		if db == nil {
+		dbAccessor := certdbfactory.NewAccessor(conf.DBConfigFile)
+		if dbAccessor == nil {
 			return nil, errNoCertDBConfigured
 		}
-		return revoke.NewHandler(certsql.NewAccessor(db)), nil
+		return revoke.NewHandler(dbAccessor), nil
 	},
 
 	"/": func() (http.Handler, error) {
@@ -195,15 +248,18 @@ var endpoints = map[string]func() (http.Handler, error){
 // registerHandlers instantiates various handlers and associate them to corresponding endpoints.
 func registerHandlers() {
 	for path, getHandler := range endpoints {
-		path = v1APIPath(path)
-		log.Infof("Setting up '%s' endpoint", path)
+		log.Debugf("getHandler for %s", path)
 		if handler, err := getHandler(); err != nil {
 			log.Warningf("endpoint '%s' is disabled: %v", path, err)
 		} else {
-			http.Handle(path, handler)
+			if path, handler, err = wrapHandler(path, handler, err); err != nil {
+				log.Warningf("endpoint '%s' is disabled by wrapper: %v", path, err)
+			} else {
+				log.Infof("endpoint '%s' is enabled", path)
+				http.Handle(path, handler)
+			}
 		}
 	}
-
 	log.Info("Handler set up complete.")
 }
 
@@ -223,16 +279,9 @@ func serverMain(args []string, c cli.Config) error {
 		return err
 	}
 
-	if c.DBConfigFile != "" {
-		db, err = dbconf.DBFromConfig(c.DBConfigFile)
-		if err != nil {
-			return err
-		}
-	}
-
 	log.Info("Initializing signer")
 
-	if s, err = sign.SignerFromConfigAndDB(c, db); err != nil {
+	if s, err = sign.SignerFromConfigAndDB(conf); err != nil {
 		log.Warningf("couldn't initialize signer: %v", err)
 	}
 
@@ -290,3 +339,22 @@ func serverMain(args []string, c cli.Config) error {
 
 // Command assembles the definition of Command 'serve'
 var Command = &cli.Command{UsageText: serverUsageText, Flags: serverFlags, Main: serverMain}
+
+var wrapHandler = defaultWrapHandler
+
+// The default wrapper simply returns the normal handler and prefixes the path appropriately
+func defaultWrapHandler(path string, handler http.Handler, err error) (string, http.Handler, error) {
+	return v1APIPath(path), handler, err
+}
+
+// SetWrapHandler sets the wrap handler which is called for all endpoints
+// A custom wrap handler may be provided in order to add arbitrary server-side pre or post processing
+// of server-side HTTP handling of requests.
+func SetWrapHandler(wh func(path string, handler http.Handler, err error) (string, http.Handler, error)) {
+	wrapHandler = wh
+}
+
+// SetEndpoint can be used to add additional routes/endpoints to the HTTP server, or to override an existing route/endpoint
+func SetEndpoint(path string, getHandler func() (http.Handler, error)) {
+	endpoints[path] = getHandler
+}

@@ -5,7 +5,6 @@ import (
 	"bufio"
 	"crypto"
 	"crypto/x509"
-	"database/sql"
 	"errors"
 	"fmt"
 	"io/ioutil"
@@ -16,15 +15,16 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/cloudflare/cfssl/certdb/dbconf"
-	"github.com/cloudflare/cfssl/config"
-	"github.com/cloudflare/cfssl/helpers"
-	"github.com/cloudflare/cfssl/helpers/derhelpers"
-	"github.com/cloudflare/cfssl/log"
-	"github.com/cloudflare/cfssl/whitelist"
+	"github.com/ucosty/cfssl/certdb/dbconf"
+	"github.com/ucosty/cfssl/config"
+	"github.com/ucosty/cfssl/helpers"
+	"github.com/ucosty/cfssl/helpers/derhelpers"
+	"github.com/ucosty/cfssl/log"
+	"github.com/ucosty/cfssl/whitelist"
 
 	"github.com/cloudflare/redoctober/client"
 	"github.com/cloudflare/redoctober/core"
+	"github.com/jmoiron/sqlx"
 )
 
 // RawMap is shorthand for the type used as a map from string to raw Root struct.
@@ -104,7 +104,7 @@ type Root struct {
 	Certificate *x509.Certificate
 	Config      *config.Signing
 	ACL         whitelist.NetACL
-	DB          *sql.DB
+	DB          *sqlx.DB
 }
 
 // LoadRoot parses a config structure into a Root structure
@@ -241,6 +241,19 @@ func parsePrivateKeySpec(spec string, cfg map[string]string) (crypto.Signer, err
 		if err != nil {
 			return nil, err
 		}
+
+		log.Debug("attempting to load PEM-encoded private key")
+		priv, err = helpers.ParsePrivateKeyPEM(in)
+		if err != nil {
+			log.Debug("file is not a PEM-encoded private key")
+			log.Debug("attempting to load DER-encoded private key")
+			priv, err = derhelpers.ParsePrivateKeyDER(in)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		log.Debug("loaded private key")
 
 		return priv, nil
 	default:

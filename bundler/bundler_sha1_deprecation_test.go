@@ -7,12 +7,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cloudflare/cfssl/config"
-	"github.com/cloudflare/cfssl/errors"
-	"github.com/cloudflare/cfssl/helpers"
-	"github.com/cloudflare/cfssl/signer"
-	"github.com/cloudflare/cfssl/signer/local"
-	"github.com/cloudflare/cfssl/ubiquity"
+	"github.com/ucosty/cfssl/config"
+	"github.com/ucosty/cfssl/errors"
+	"github.com/ucosty/cfssl/helpers"
+	"github.com/ucosty/cfssl/signer"
+	"github.com/ucosty/cfssl/signer/local"
+	"github.com/ucosty/cfssl/ubiquity"
 )
 
 const (
@@ -151,7 +151,7 @@ func makeCASigner(certBytes, keyBytes []byte, sigAlgo x509.SignatureAlgorithm, t
 
 	defaultProfile := &config.SigningProfile{
 		Usage:        []string{"cert sign"},
-		CA:           true,
+		CAConstraint: config.CAConstraint{IsCA: true},
 		Expiry:       time.Hour,
 		ExpiryString: "1h",
 	}

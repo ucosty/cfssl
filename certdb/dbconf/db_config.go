@@ -1,15 +1,13 @@
 package dbconf
 
 import (
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"io/ioutil"
 
-	cferr "github.com/cloudflare/cfssl/errors"
-	"github.com/cloudflare/cfssl/log"
-	_ "github.com/lib/pq"           // import just to initialize Postgres
-	_ "github.com/mattn/go-sqlite3" // import just to initialize SQLite
+	cferr "github.com/ucosty/cfssl/errors"
+	"github.com/ucosty/cfssl/log"
+	"github.com/jmoiron/sqlx"
 )
 
 // DBConfig contains the database driver name and configuration to be passed to Open
@@ -36,23 +34,16 @@ func LoadFile(path string) (cfg *DBConfig, err error) {
 	err = json.Unmarshal(body, &cfg)
 	if err != nil {
 		return nil, cferr.Wrap(cferr.PolicyError, cferr.InvalidPolicy,
-			errors.New("failed to unmarshal configuration: "+err.Error()))
+			errors.New("Failed to unmarshal configuration: "+err.Error()))
 	}
 
 	if cfg.DataSourceName == "" || cfg.DriverName == "" {
-		return nil, cferr.Wrap(cferr.PolicyError, cferr.InvalidPolicy, errors.New("invalid db configuration"))
+		return nil, cferr.Wrap(cferr.PolicyError, cferr.InvalidPolicy, errors.New("Invalid DB configuration"))
 	}
 
 	return
 }
 
-// DBFromConfig opens a sql.DB from settings in a db config file
-func DBFromConfig(path string) (db *sql.DB, err error) {
-	var dbCfg *DBConfig
-	dbCfg, err = LoadFile(path)
-	if err != nil {
-		return nil, err
-	}
-
-	return sql.Open(dbCfg.DriverName, dbCfg.DataSourceName)
+func DBFromConfig(path string) (db *sqlx.DB, err error) {
+	return nil, nil
 }

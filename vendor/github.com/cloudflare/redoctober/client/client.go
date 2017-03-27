@@ -12,7 +12,7 @@ import (
 	"net/http"
 	"time"
 
-	backoff "github.com/cloudflare/cfssl/transport/core"
+	backoff "github.com/ucosty/cfssl/transport/core"
 	"github.com/cloudflare/redoctober/core"
 )
 

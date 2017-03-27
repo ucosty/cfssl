@@ -5,14 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 
-	"github.com/cloudflare/cfssl/api/generator"
-	"github.com/cloudflare/cfssl/cli"
-	"github.com/cloudflare/cfssl/cli/genkey"
-	"github.com/cloudflare/cfssl/cli/sign"
-	"github.com/cloudflare/cfssl/csr"
-	"github.com/cloudflare/cfssl/initca"
-	"github.com/cloudflare/cfssl/log"
-	"github.com/cloudflare/cfssl/signer"
+	"github.com/ucosty/cfssl/api/generator"
+	"github.com/ucosty/cfssl/cli"
+	"github.com/ucosty/cfssl/cli/genkey"
+	"github.com/ucosty/cfssl/cli/sign"
+	"github.com/ucosty/cfssl/csr"
+	"github.com/ucosty/cfssl/initca"
+	"github.com/ucosty/cfssl/log"
+	"github.com/ucosty/cfssl/signer"
 )
 
 var gencertUsageText = `cfssl gencert -- generate a new key and signed certificate
@@ -54,6 +54,10 @@ func gencertMain(args []string, c cli.Config) error {
 		return err
 	}
 
+	if len(args) > 0 {
+		return errors.New("only one argument is accepted, please check with usage")
+	}
+
 	csrJSONFileBytes, err := cli.ReadStdin(csrJSONFile)
 	if err != nil {
 		return err
@@ -65,6 +69,9 @@ func gencertMain(args []string, c cli.Config) error {
 	err = json.Unmarshal(csrJSONFileBytes, &req)
 	if err != nil {
 		return err
+	}
+	if c.CNOverride != "" {
+		req.CN = c.CNOverride
 	}
 	switch {
 	case c.IsCA:
@@ -92,6 +99,9 @@ func gencertMain(args []string, c cli.Config) error {
 			return err
 		}
 
+		if c.Hostname != "" {
+			req.Hosts = signer.SplitHosts(c.Hostname)
+		}
 		// Remote can be forced on the command line or in the config
 		if c.Remote == "" && c.CFG == nil {
 			if c.CAFile == "" {
@@ -119,14 +129,17 @@ func gencertMain(args []string, c cli.Config) error {
 		}
 
 		var cert []byte
-		req := signer.SignRequest{
+		signReq := signer.SignRequest{
 			Request: string(csrBytes),
 			Hosts:   signer.SplitHosts(c.Hostname),
 			Profile: c.Profile,
 			Label:   c.Label,
 		}
 
-		cert, err = s.Sign(req)
+		if c.CRL != "" {
+			signReq.CRLOverride = c.CRL
+		}
+		cert, err = s.Sign(signReq)
 		if err != nil {
 			return err
 		}
@@ -139,7 +152,7 @@ func gencertMain(args []string, c cli.Config) error {
 		// "Applicant information MUST include, but not be limited to, at least one
 		// Fully-Qualified Domain Name or IP address to be included in the Certificate’s
 		// SubjectAltName extension."
-		if len(req.Hosts) == 0 {
+		if len(signReq.Hosts) == 0 && len(req.Hosts) == 0 {
 			log.Warning(generator.CSRNoHostMessage)
 		}
 

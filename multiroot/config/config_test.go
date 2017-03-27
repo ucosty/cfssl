@@ -5,7 +5,9 @@ import (
 	"os"
 	"testing"
 
-	"github.com/cloudflare/cfssl/log"
+	"github.com/ucosty/cfssl/log"
+
+	_ "github.com/mattn/go-sqlite3" // import just to initialize SQLite for testing
 )
 
 // UnlinkIfExists removes a file if it exists.

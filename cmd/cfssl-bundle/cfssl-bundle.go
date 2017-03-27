@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/cloudflare/cfssl/cli"
-	"github.com/cloudflare/cfssl/cli/bundle"
-	"github.com/cloudflare/cfssl/config"
+	"github.com/ucosty/cfssl/cli"
+	"github.com/ucosty/cfssl/cli/bundle"
+	"github.com/ucosty/cfssl/config"
 )
 
 // main defines the bundle usage and registers all defined commands and flags.

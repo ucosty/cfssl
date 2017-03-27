@@ -13,8 +13,8 @@ import (
 	"path"
 	"path/filepath"
 
-	"github.com/cloudflare/cfssl/helpers"
-	"github.com/cloudflare/cfssl/log"
+	"github.com/ucosty/cfssl/helpers"
+	"github.com/ucosty/cfssl/log"
 )
 
 // SHA1RawPublicKey returns a SHA1 hash of the raw certificate public key

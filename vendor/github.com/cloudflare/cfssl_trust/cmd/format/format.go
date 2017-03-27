@@ -17,7 +17,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/cloudflare/cfssl/helpers"
+	"github.com/ucosty/cfssl/helpers"
 )
 
 // filename is the file full of certificates provided in CL

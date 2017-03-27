@@ -15,10 +15,10 @@ import (
 	"math/big"
 	"time"
 
-	"github.com/cloudflare/cfssl/config"
-	cferr "github.com/cloudflare/cfssl/errors"
-	"github.com/cloudflare/cfssl/helpers"
-	"github.com/cloudflare/cfssl/signer"
+	"github.com/ucosty/cfssl/config"
+	cferr "github.com/ucosty/cfssl/errors"
+	"github.com/ucosty/cfssl/helpers"
+	"github.com/ucosty/cfssl/signer"
 )
 
 const threeMonths = 2190 * time.Hour
@@ -119,7 +119,7 @@ func Sign(priv crypto.Signer, csrPEM []byte, profile *config.SigningProfile) ([]
 	template.KeyUsage = ku
 	template.ExtKeyUsage = eku
 	template.BasicConstraintsValid = true
-	template.IsCA = profile.CA
+	template.IsCA = profile.CAConstraint.IsCA
 	template.SubjectKeyId = pubhash.Sum(nil)
 
 	if ocspURL != "" {

@@ -6,7 +6,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/cloudflare/cfssl/cli"
+	"github.com/ucosty/cfssl/cli"
 )
 
 func TestServe(t *testing.T) {
@@ -38,6 +38,7 @@ func TestServe(t *testing.T) {
 	expected[v1APIPath("newcert")] = http.StatusNotFound
 	expected[v1APIPath("info")] = http.StatusNotFound
 	expected[v1APIPath("ocspsign")] = http.StatusNotFound
+	expected[v1APIPath("crl")] = http.StatusNotFound
 	expected[v1APIPath("gencrl")] = http.StatusNotFound
 	expected[v1APIPath("revoke")] = http.StatusNotFound
 

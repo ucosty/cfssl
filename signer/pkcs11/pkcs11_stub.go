@@ -3,9 +3,9 @@
 package pkcs11
 
 import (
-	"github.com/cloudflare/cfssl/config"
-	"github.com/cloudflare/cfssl/errors"
-	"github.com/cloudflare/cfssl/signer"
+	"github.com/ucosty/cfssl/config"
+	"github.com/ucosty/cfssl/errors"
+	"github.com/ucosty/cfssl/signer"
 )
 
 // New always returns an error. If PKCS #11 support is needed, the

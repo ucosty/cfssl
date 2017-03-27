@@ -7,8 +7,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/cloudflare/cfssl/certinfo"
-	"github.com/cloudflare/cfssl/cli"
+	"github.com/ucosty/cfssl/certinfo"
+	"github.com/ucosty/cfssl/cli"
 )
 
 // Usage text of 'cfssl certinfo'

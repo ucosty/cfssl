@@ -2,3 +2,9 @@ dist/*
 cli/serve/static.rice-box.go
 .coverprofile
 certdb/testdb/certstore_development.db
+<<<<<<< HEAD
+*.iml
+.idea
+=======
+gopath
+>>>>>>> 1a5ac2e68991e01380068b96f50f5ff982d9bb14

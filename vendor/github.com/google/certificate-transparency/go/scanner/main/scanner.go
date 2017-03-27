@@ -1,15 +1,20 @@
 package main
 
 import (
+	"encoding/base64"
 	"flag"
 	"fmt"
 	"log"
 	"math/big"
+	"net/http"
 	"regexp"
+	"time"
 
-	"github.com/google/certificate-transparency/go"
+	ct "github.com/google/certificate-transparency/go"
 	"github.com/google/certificate-transparency/go/client"
+	"github.com/google/certificate-transparency/go/jsonclient"
 	"github.com/google/certificate-transparency/go/scanner"
+	httpclient "github.com/mreiferson/go-httpclient"
 )
 
 const (
@@ -19,6 +24,7 @@ const (
 
 var logUri = flag.String("log_uri", "http://ct.googleapis.com/aviator", "CT log base URI")
 var matchSubjectRegex = flag.String("match_subject_regex", ".*", "Regex to match CN/SAN")
+var matchIssuerRegex = flag.String("match_issuer_regex", "", "Regex to match in issuer CN")
 var precertsOnly = flag.Bool("precerts_only", false, "Only match precerts")
 var serialNumber = flag.String("serial_number", "", "Serial number of certificate of interest")
 var batchSize = flag.Int("batch_size", 1000, "Max number of entries to request at per call to get-entries")
@@ -26,6 +32,7 @@ var numWorkers = flag.Int("num_workers", 2, "Number of concurrent matchers")
 var parallelFetch = flag.Int("parallel_fetch", 2, "Number of concurrent GetEntries fetches")
 var startIndex = flag.Int64("start_index", 0, "Log index to start scanning at")
 var quiet = flag.Bool("quiet", false, "Don't print out extra logging messages, only matches.")
+var printChains = flag.Bool("print_chains", false, "If true prints the whole chain rather than a summary")
 
 // Prints out a short bit of info about |cert|, found at |index| in the
 // specified log
@@ -40,7 +47,41 @@ func logPrecertInfo(entry *ct.LogEntry) {
 		entry.Precert.TBSCertificate.Subject.CommonName, entry.Precert.TBSCertificate.Issuer.CommonName)
 }
 
+func chainToString(certs []ct.ASN1Cert) string {
+	var output []byte
+
+	for _, cert := range certs {
+		output = append(output, cert...)
+	}
+
+	return base64.StdEncoding.EncodeToString(output)
+}
+
+func logFullChain(entry *ct.LogEntry) {
+	log.Printf("Index %d: Chain: %s", entry.Index, chainToString(entry.Chain))
+}
+
+func createRegexes(regexValue string) (*regexp.Regexp, *regexp.Regexp) {
+	// Make a regex matcher
+	var certRegex *regexp.Regexp
+	precertRegex := regexp.MustCompile(regexValue)
+	switch *precertsOnly {
+	case true:
+		certRegex = regexp.MustCompile(MatchesNothingRegex)
+	case false:
+		certRegex = precertRegex
+	}
+
+	return certRegex, precertRegex
+}
+
 func createMatcherFromFlags() (scanner.Matcher, error) {
+	if *matchIssuerRegex != "" {
+		certRegex, precertRegex := createRegexes(*matchIssuerRegex)
+		return scanner.MatchIssuerRegex{
+			CertificateIssuerRegex:    certRegex,
+			PrecertificateIssuerRegex: precertRegex}, nil
+	}
 	if *serialNumber != "" {
 		log.Printf("Using SerialNumber matcher on %s", *serialNumber)
 		var sn big.Int
@@ -50,15 +91,7 @@ func createMatcherFromFlags() (scanner.Matcher, error) {
 		}
 		return scanner.MatchSerialNumber{SerialNumber: sn}, nil
 	} else {
-		// Make a regex matcher
-		var certRegex *regexp.Regexp
-		precertRegex := regexp.MustCompile(*matchSubjectRegex)
-		switch *precertsOnly {
-		case true:
-			certRegex = regexp.MustCompile(MatchesNothingRegex)
-		case false:
-			certRegex = precertRegex
-		}
+		certRegex, precertRegex := createRegexes(*matchSubjectRegex)
 		return scanner.MatchSubjectRegex{
 			CertificateSubjectRegex:    certRegex,
 			PrecertificateSubjectRegex: precertRegex}, nil
@@ -67,7 +100,18 @@ func createMatcherFromFlags() (scanner.Matcher, error) {
 
 func main() {
 	flag.Parse()
-	logClient := client.New(*logUri)
+	logClient, err := client.New(*logUri, &http.Client{
+		Transport: &httpclient.Transport{
+			ConnectTimeout:        10 * time.Second,
+			RequestTimeout:        30 * time.Second,
+			ResponseHeaderTimeout: 30 * time.Second,
+			MaxIdleConnsPerHost:   10,
+			DisableKeepAlives:     false,
+		},
+	}, jsonclient.Options{})
+	if err != nil {
+		log.Fatal(err)
+	}
 	matcher, err := createMatcherFromFlags()
 	if err != nil {
 		log.Fatal(err)
@@ -82,5 +126,10 @@ func main() {
 		Quiet:         *quiet,
 	}
 	scanner := scanner.NewScanner(logClient, opts)
-	scanner.Scan(logCertInfo, logPrecertInfo)
+
+	if *printChains {
+		scanner.Scan(logFullChain, logFullChain)
+	} else {
+		scanner.Scan(logCertInfo, logPrecertInfo)
+	}
 }

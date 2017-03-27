@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 
-	"github.com/cloudflare/cfssl/api/client"
-	"github.com/cloudflare/cfssl/helpers"
-	"github.com/cloudflare/cfssl/info"
+	"github.com/ucosty/cfssl/api/client"
+	"github.com/ucosty/cfssl/helpers"
+	"github.com/ucosty/cfssl/info"
 )
 
 // This package contains CFSSL integration.
@@ -21,8 +21,15 @@ func NewCFSSL(metadata map[string]string) ([]*x509.Certificate, error) {
 
 	label := metadata["label"]
 	profile := metadata["profile"]
-
-	srv := client.NewServer(host)
+	cert, err := helpers.LoadClientCertificate(metadata["mutual-tls-cert"], metadata["mutual-tls-key"])
+	if err != nil {
+		return nil, err
+	}
+	remoteCAs, err := helpers.LoadPEMCertPool(metadata["tls-remote-ca"])
+	if err != nil {
+		return nil, err
+	}
+	srv := client.NewServerTLS(host, helpers.CreateTLSConfig(remoteCAs, cert))
 	data, err := json.Marshal(info.Req{Label: label, Profile: profile})
 	if err != nil {
 		return nil, err

@@ -6,12 +6,15 @@ import (
 	"os"
 	"time"
 
-	"github.com/cloudflare/cfssl/csr"
-	"github.com/cloudflare/cfssl/log"
-	"github.com/cloudflare/cfssl/transport/ca"
-	"github.com/cloudflare/cfssl/transport/core"
-	"github.com/cloudflare/cfssl/transport/kp"
-	"github.com/cloudflare/cfssl/transport/roots"
+	"github.com/ucosty/backoff"
+	"github.com/ucosty/cfssl/csr"
+	"github.com/ucosty/cfssl/errors"
+	"github.com/ucosty/cfssl/log"
+	"github.com/ucosty/cfssl/revoke"
+	"github.com/ucosty/cfssl/transport/ca"
+	"github.com/ucosty/cfssl/transport/core"
+	"github.com/ucosty/cfssl/transport/kp"
+	"github.com/ucosty/cfssl/transport/roots"
 )
 
 func envOrDefault(key, def string) string {
@@ -67,7 +70,13 @@ type Transport struct {
 	// Backoff is used to control the behaviour of a Transport
 	// when it is attempting to automatically update a certificate
 	// as part of AutoUpdate.
-	Backoff *core.Backoff
+	Backoff *backoff.Backoff
+
+	// RevokeSoftFail, if true, will cause a failure to check
+	// revocation (such that the revocation status of a
+	// certificate cannot be checked) to not be treated as an
+	// error.
+	RevokeSoftFail bool
 }
 
 // TLSClientAuthClientConfig returns a new client authentication TLS
@@ -133,7 +142,7 @@ func New(before time.Duration, identity *core.Identity) (*Transport, error) {
 	var tr = &Transport{
 		Before:   before,
 		Identity: identity,
-		Backoff:  &core.Backoff{},
+		Backoff:  &backoff.Backoff{},
 	}
 
 	store, err := roots.New(identity.Roots)
@@ -179,6 +188,7 @@ func (tr *Transport) Lifespan() time.Duration {
 
 	now = now.Add(tr.Before)
 	ls := cert.NotAfter.Sub(now)
+	log.Debugf("   LIFESPAN:\t%s", ls)
 	if ls < 0 {
 		return 0
 	}
@@ -203,7 +213,7 @@ func (tr *Transport) RefreshKeys() (err error) {
 			err = tr.Provider.Generate(kr.Algo(), kr.Size())
 			if err != nil {
 				log.Debugf("failed to generate key: %v", err)
-				return
+				return err
 			}
 		}
 	}
@@ -214,12 +224,18 @@ func (tr *Transport) RefreshKeys() (err error) {
 		req, err := tr.Provider.CertificateRequest(tr.Identity.Request)
 		if err != nil {
 			log.Debugf("couldn't get a CSR: %v", err)
+			if tr.Provider.SignalFailure(err) {
+				return tr.RefreshKeys()
+			}
 			return err
 		}
 
 		log.Debug("requesting certificate from CA")
 		cert, err := tr.CA.SignCSR(req)
 		if err != nil {
+			if tr.Provider.SignalFailure(err) {
+				return tr.RefreshKeys()
+			}
 			log.Debugf("failed to get the certificate signed: %v", err)
 			return err
 		}
@@ -228,17 +244,25 @@ func (tr *Transport) RefreshKeys() (err error) {
 		err = tr.Provider.SetCertificatePEM(cert)
 		if err != nil {
 			log.Debugf("failed to set the provider's certificate: %v", err)
+			if tr.Provider.SignalFailure(err) {
+				return tr.RefreshKeys()
+			}
 			return err
 		}
 
-		log.Debug("storing the certificate")
-		err = tr.Provider.Store()
-		if err != nil {
-			log.Debugf("the provider failed to store the certificate: %v", err)
-			return err
+		if tr.Provider.Persistent() {
+			log.Debug("storing the certificate")
+			err = tr.Provider.Store()
+
+			if err != nil {
+				log.Debugf("the provider failed to store the certificate: %v", err)
+				if tr.Provider.SignalFailure(err) {
+					return tr.RefreshKeys()
+				}
+				return err
+			}
 		}
 	}
-
 	return nil
 }
 
@@ -276,7 +300,26 @@ func Dial(address string, tr *Transport) (*tls.Conn, error) {
 		return nil, err
 	}
 
-	return tls.Dial("tcp", address, cfg)
+	conn, err := tls.Dial("tcp", address, cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	state := conn.ConnectionState()
+	if len(state.VerifiedChains) == 0 {
+		return nil, errors.New(errors.CertificateError, errors.VerifyFailed)
+	}
+
+	for _, chain := range state.VerifiedChains {
+		for _, cert := range chain {
+			revoked, ok := revoke.VerifyCertificate(cert)
+			if (!tr.RevokeSoftFail && !ok) || revoked {
+				return nil, errors.New(errors.CertificateError, errors.VerifyFailed)
+			}
+		}
+	}
+
+	return conn, nil
 }
 
 // AutoUpdate will automatically update the listener. If a non-nil

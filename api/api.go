@@ -6,8 +6,8 @@ import (
 	"io/ioutil"
 	"net/http"
 
-	"github.com/cloudflare/cfssl/errors"
-	"github.com/cloudflare/cfssl/log"
+	"github.com/ucosty/cfssl/errors"
+	"github.com/ucosty/cfssl/log"
 )
 
 // Handler is an interface providing a generic mechanism for handling HTTP requests.
@@ -34,8 +34,8 @@ func (f HandlerFunc) Handle(w http.ResponseWriter, r *http.Request) error {
 	return f(w, r)
 }
 
-// handleError is the centralised error handling and reporting.
-func handleError(w http.ResponseWriter, err error) (code int) {
+// HandleError is the centralised error handling and reporting.
+func HandleError(w http.ResponseWriter, err error) (code int) {
 	if err == nil {
 		return http.StatusOK
 	}
@@ -82,7 +82,7 @@ func (h HTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	} else {
 		err = errors.NewMethodNotAllowed(r.Method)
 	}
-	status := handleError(w, err)
+	status := HandleError(w, err)
 	log.Infof("%s - \"%s %s\" %d", r.RemoteAddr, r.Method, r.URL, status)
 }
 

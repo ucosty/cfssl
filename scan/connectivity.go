@@ -2,13 +2,11 @@ package scan
 
 import (
 	"bufio"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
 	"net"
-	"strings"
-
-	"github.com/cloudflare/cf-tls/tls"
 )
 
 // Connectivity contains scanners testing basic connectivity to the host
@@ -80,7 +78,7 @@ func initOnCloudFlareScan() ([]*net.IPNet, error) {
 	}
 	defer v6resp.Body.Close()
 
-	scanner := bufio.NewScanner(io.MultiReader(v4resp.Body, strings.NewReader("\n"), v6resp.Body))
+	scanner := bufio.NewScanner(io.MultiReader(v4resp.Body, v6resp.Body))
 	for scanner.Scan() {
 		_, ipnet, err := net.ParseCIDR(scanner.Text())
 		if err != nil {

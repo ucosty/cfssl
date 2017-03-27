@@ -3,7 +3,7 @@ package printdefaults
 import (
 	"fmt"
 
-	"github.com/cloudflare/cfssl/cli"
+	"github.com/ucosty/cfssl/cli"
 )
 
 var printDefaultsUsage = `cfssl print-defaults -- print default configurations that can be used as a template
@@ -22,7 +22,7 @@ func printAvailable() {
 }
 
 func printDefaults(args []string, c cli.Config) (err error) {
-	arg, args, err := cli.PopFirstArgument(args)
+	arg, _, err := cli.PopFirstArgument(args)
 	if err != nil {
 		return
 	}

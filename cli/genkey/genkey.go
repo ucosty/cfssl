@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 
-	"github.com/cloudflare/cfssl/cli"
-	"github.com/cloudflare/cfssl/csr"
-	"github.com/cloudflare/cfssl/initca"
+	"github.com/ucosty/cfssl/cli"
+	"github.com/ucosty/cfssl/csr"
+	"github.com/ucosty/cfssl/initca"
 )
 
 var genkeyUsageText = `cfssl genkey -- generate a new key and CSR
@@ -27,6 +27,9 @@ func genkeyMain(args []string, c cli.Config) (err error) {
 	csrFile, args, err := cli.PopFirstArgument(args)
 	if err != nil {
 		return
+	}
+	if len(args) > 0 {
+		return errors.New("only one argument is accepted, please check with usage")
 	}
 
 	csrFileBytes, err := cli.ReadStdin(csrFile)

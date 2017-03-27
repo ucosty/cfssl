@@ -3,14 +3,15 @@ package universal
 
 import (
 	"crypto/x509"
+	"net/http"
 
-	"github.com/cloudflare/cfssl/certdb"
-	"github.com/cloudflare/cfssl/config"
-	cferr "github.com/cloudflare/cfssl/errors"
-	"github.com/cloudflare/cfssl/info"
-	"github.com/cloudflare/cfssl/signer"
-	"github.com/cloudflare/cfssl/signer/local"
-	"github.com/cloudflare/cfssl/signer/remote"
+	"github.com/ucosty/cfssl/certdb"
+	"github.com/ucosty/cfssl/config"
+	cferr "github.com/ucosty/cfssl/errors"
+	"github.com/ucosty/cfssl/info"
+	"github.com/ucosty/cfssl/signer"
+	"github.com/ucosty/cfssl/signer/local"
+	"github.com/ucosty/cfssl/signer/remote"
 )
 
 // Signer represents a universal signer which is both local and remote
@@ -47,6 +48,11 @@ func fileBackedSigner(root *Root, policy *config.Signing) (signer.Signer, bool, 
 
 var localSignerList = []localSignerCheck{
 	fileBackedSigner,
+}
+
+// PrependLocalSignerToList prepends signer to the local signer's list
+func PrependLocalSignerToList(signer localSignerCheck) {
+	localSignerList = append([]localSignerCheck{signer}, localSignerList...)
 }
 
 func newLocalSigner(root Root, policy *config.Signing) (s signer.Signer, err error) {
@@ -185,6 +191,12 @@ func (s *Signer) Info(req info.Req) (resp *info.Resp, err error) {
 func (s *Signer) SetDBAccessor(dba certdb.Accessor) {
 	s.local.SetDBAccessor(dba)
 	s.remote.SetDBAccessor(dba)
+}
+
+// SetReqModifier sets the function to call to modify the HTTP request prior to sending it
+func (s *Signer) SetReqModifier(mod func(*http.Request, []byte)) {
+	s.local.SetReqModifier(mod)
+	s.remote.SetReqModifier(mod)
 }
 
 // SigAlgo returns the RSA signer's signature algorithm.

@@ -4,10 +4,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cloudflare/cfssl/certdb"
-	"github.com/cloudflare/cfssl/certdb/sql"
-	"github.com/cloudflare/cfssl/certdb/testdb"
-	"github.com/cloudflare/cfssl/cli"
+	"github.com/ucosty/cfssl/certdb"
+	"github.com/ucosty/cfssl/certdb/sql"
+	"github.com/ucosty/cfssl/certdb/testdb"
+	"github.com/ucosty/cfssl/cli"
 	"golang.org/x/crypto/ocsp"
 )
 

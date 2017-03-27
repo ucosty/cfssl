@@ -9,15 +9,16 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/asn1"
 	"encoding/pem"
 	"errors"
 	"net"
 	"net/mail"
 	"strings"
 
-	cferr "github.com/cloudflare/cfssl/errors"
-	"github.com/cloudflare/cfssl/helpers"
-	"github.com/cloudflare/cfssl/log"
+	cferr "github.com/ucosty/cfssl/errors"
+	"github.com/ucosty/cfssl/helpers"
+	"github.com/ucosty/cfssl/log"
 )
 
 const (
@@ -28,11 +29,12 @@ const (
 
 // A Name contains the SubjectInfo fields.
 type Name struct {
-	C  string // Country
-	ST string // State
-	L  string // Locality
-	O  string // OrganisationName
-	OU string // OrganisationalUnitName
+	C            string // Country
+	ST           string // State
+	L            string // Locality
+	O            string // OrganisationName
+	OU           string // OrganisationalUnitName
+	SerialNumber string
 }
 
 // A KeyRequest is a generic request for a new key.
@@ -45,8 +47,8 @@ type KeyRequest interface {
 
 // A BasicKeyRequest contains the algorithm and key size for a new private key.
 type BasicKeyRequest struct {
-	A string `json:"algo"`
-	S int    `json:"size"`
+	A string `json:"algo" yaml:"algo"`
+	S int    `json:"size" yaml:"size"`
 }
 
 // NewBasicKeyRequest returns a default BasicKeyRequest.
@@ -128,18 +130,20 @@ func (kr *BasicKeyRequest) SigAlgo() x509.SignatureAlgorithm {
 
 // CAConfig is a section used in the requests initialising a new CA.
 type CAConfig struct {
-	PathLength int    `json:"pathlen"`
-	Expiry     string `json:"expiry"`
+	PathLength  int    `json:"pathlen" yaml:"pathlen"`
+	PathLenZero bool   `json:"pathlenzero" yaml:"pathlenzero"`
+	Expiry      string `json:"expiry" yaml:"expiry"`
 }
 
 // A CertificateRequest encapsulates the API interface to the
 // certificate request functionality.
 type CertificateRequest struct {
-	CN         string
-	Names      []Name     `json:"names"`
-	Hosts      []string   `json:"hosts"`
-	KeyRequest KeyRequest `json:"key,omitempty"`
-	CA         *CAConfig  `json:"ca,omitempty"`
+	CN           string
+	Names        []Name     `json:"names" yaml:"names"`
+	Hosts        []string   `json:"hosts" yaml:"hosts"`
+	KeyRequest   KeyRequest `json:"key,omitempty" yaml:"key,omitempty"`
+	CA           *CAConfig  `json:"ca,omitempty" yaml:"ca,omitempty"`
+	SerialNumber string     `json:"serialnumber,omitempty" yaml:"serialnumber,omitempty"`
 }
 
 // New returns a new, empty CertificateRequest with a
@@ -169,7 +173,14 @@ func (cr *CertificateRequest) Name() pkix.Name {
 		appendIf(n.O, &name.Organization)
 		appendIf(n.OU, &name.OrganizationalUnit)
 	}
+	name.SerialNumber = cr.SerialNumber
 	return name
+}
+
+// BasicConstraints CSR information RFC 5280, 4.2.1.9
+type BasicConstraints struct {
+	IsCA       bool `asn1:"optional"`
+	MaxPathLen int  `asn1:"optional,default:-1"`
 }
 
 // ParseRequest takes a certificate request and generates a key and
@@ -214,34 +225,11 @@ func ParseRequest(req *CertificateRequest) (csr, key []byte, err error) {
 		panic("Generate should have failed to produce a valid key.")
 	}
 
-	var tpl = x509.CertificateRequest{
-		Subject:            req.Name(),
-		SignatureAlgorithm: req.KeyRequest.SigAlgo(),
-	}
-
-	for i := range req.Hosts {
-		if ip := net.ParseIP(req.Hosts[i]); ip != nil {
-			tpl.IPAddresses = append(tpl.IPAddresses, ip)
-		} else if email, err := mail.ParseAddress(req.Hosts[i]); err == nil && email != nil {
-			tpl.EmailAddresses = append(tpl.EmailAddresses, req.Hosts[i])
-		} else {
-			tpl.DNSNames = append(tpl.DNSNames, req.Hosts[i])
-		}
-	}
-
-	csr, err = x509.CreateCertificateRequest(rand.Reader, &tpl, priv)
+	csr, err = Generate(priv.(crypto.Signer), req)
 	if err != nil {
 		log.Errorf("failed to generate a CSR: %v", err)
 		err = cferr.Wrap(cferr.CSRError, cferr.BadRequest, err)
-		return
 	}
-	block := pem.Block{
-		Type:  "CERTIFICATE REQUEST",
-		Bytes: csr,
-	}
-
-	log.Info("encoded CSR")
-	csr = pem.EncodeToMemory(&block)
 	return
 }
 
@@ -254,6 +242,7 @@ func ExtractCertificateRequest(cert *x509.Certificate) *CertificateRequest {
 	req.CN = cert.Subject.CommonName
 	req.Names = getNames(cert.Subject)
 	req.Hosts = getHosts(cert)
+	req.SerialNumber = cert.Subject.SerialNumber
 
 	if cert.IsCA {
 		req.CA = new(CAConfig)
@@ -261,6 +250,7 @@ func ExtractCertificateRequest(cert *x509.Certificate) *CertificateRequest {
 		// issue date and expiry date.
 		req.CA.Expiry = cert.NotAfter.Sub(cert.NotBefore).String()
 		req.CA.PathLength = cert.MaxPathLen
+		req.CA.PathLenZero = cert.MaxPathLenZero
 	}
 
 	return req
@@ -337,7 +327,7 @@ func (g *Generator) ProcessRequest(req *CertificateRequest) (csr, key []byte, er
 	err = g.Validator(req)
 	if err != nil {
 		log.Warningf("invalid request: %v", err)
-		return
+		return nil, nil, err
 	}
 
 	csr, key, err = ParseRequest(req)
@@ -373,7 +363,7 @@ func Regenerate(priv crypto.Signer, csr []byte) ([]byte, error) {
 // Generate creates a new CSR from a CertificateRequest structure and
 // an existing key. The KeyRequest field is ignored.
 func Generate(priv crypto.Signer, req *CertificateRequest) (csr []byte, err error) {
-	sigAlgo := helpers.SignerAlgo(priv, crypto.SHA256)
+	sigAlgo := helpers.SignerAlgo(priv)
 	if sigAlgo == x509.UnknownSignatureAlgorithm {
 		return nil, cferr.New(cferr.PrivateKeyError, cferr.Unavailable)
 	}
@@ -393,6 +383,14 @@ func Generate(priv crypto.Signer, req *CertificateRequest) (csr []byte, err erro
 		}
 	}
 
+	if req.CA != nil {
+		err = appendCAInfoToCSR(req.CA, &tpl)
+		if err != nil {
+			err = cferr.Wrap(cferr.CSRError, cferr.GenerationFailed, err)
+			return
+		}
+	}
+
 	csr, err = x509.CreateCertificateRequest(rand.Reader, &tpl, priv)
 	if err != nil {
 		log.Errorf("failed to generate a CSR: %v", err)
@@ -407,4 +405,27 @@ func Generate(priv crypto.Signer, req *CertificateRequest) (csr []byte, err erro
 	log.Info("encoded CSR")
 	csr = pem.EncodeToMemory(&block)
 	return
+}
+
+// appendCAInfoToCSR appends CAConfig BasicConstraint extension to a CSR
+func appendCAInfoToCSR(reqConf *CAConfig, csr *x509.CertificateRequest) error {
+	pathlen := reqConf.PathLength
+	if pathlen == 0 && !reqConf.PathLenZero {
+		pathlen = -1
+	}
+	val, err := asn1.Marshal(BasicConstraints{true, pathlen})
+
+	if err != nil {
+		return err
+	}
+
+	csr.ExtraExtensions = []pkix.Extension{
+		{
+			Id:       asn1.ObjectIdentifier{2, 5, 29, 19},
+			Value:    val,
+			Critical: true,
+		},
+	}
+
+	return nil
 }

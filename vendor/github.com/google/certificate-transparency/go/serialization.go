@@ -4,10 +4,15 @@ import (
 	"bytes"
 	"container/list"
 	"crypto"
+	"encoding/asn1"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"strings"
+
+	"github.com/google/certificate-transparency/go/tls"
 )
 
 // Variable size structure prefix-header byte lengths
@@ -17,12 +22,15 @@ const (
 	ExtensionsLengthBytes       = 2
 	CertificateChainLengthBytes = 3
 	SignatureLengthBytes        = 2
+	JSONLengthBytes             = 3
 )
 
 // Max lengths
 const (
 	MaxCertificateLength = (1 << 24) - 1
 	MaxExtensionsLength  = (1 << 16) - 1
+	MaxSCTInListLength   = (1 << 16) - 1
+	MaxSCTListLength     = (1 << 16) - 1
 )
 
 func writeUint(w io.Writer, value uint64, numBytes int) error {
@@ -80,12 +88,11 @@ func readVarBytes(r io.Reader, numLenBytes int) ([]byte, error) {
 		return nil, err
 	}
 	data := make([]byte, l)
-	n, err := r.Read(data)
-	if err != nil {
+	if n, err := io.ReadFull(r, data); err != nil {
+		if err == io.EOF || err == io.ErrUnexpectedEOF {
+			return nil, fmt.Errorf("short read: expected %d but got %d", l, n)
+		}
 		return nil, err
-	}
-	if n != int(l) {
-		return nil, fmt.Errorf("short read: expected %d but got %d", l, n)
 	}
 	return data, nil
 }
@@ -142,10 +149,49 @@ func ReadTimestampedEntryInto(r io.Reader, t *TimestampedEntry) error {
 		if t.PrecertEntry.TBSCertificate, err = readVarBytes(r, PreCertificateLengthBytes); err != nil {
 			return err
 		}
+	case XJSONLogEntryType:
+		if t.JSONData, err = readVarBytes(r, JSONLengthBytes); err != nil {
+			return err
+		}
 	default:
 		return fmt.Errorf("unknown EntryType: %d", t.EntryType)
 	}
 	t.Extensions, err = readVarBytes(r, ExtensionsLengthBytes)
+	return nil
+}
+
+// SerializeTimestampedEntry writes timestamped entry to Writer.
+// In case of error, w may contain garbage.
+func SerializeTimestampedEntry(w io.Writer, t *TimestampedEntry) error {
+	if err := binary.Write(w, binary.BigEndian, t.Timestamp); err != nil {
+		return err
+	}
+	if err := binary.Write(w, binary.BigEndian, t.EntryType); err != nil {
+		return err
+	}
+	switch t.EntryType {
+	case X509LogEntryType:
+		if err := writeVarBytes(w, t.X509Entry, CertificateLengthBytes); err != nil {
+			return err
+		}
+	case PrecertLogEntryType:
+		if err := binary.Write(w, binary.BigEndian, t.PrecertEntry.IssuerKeyHash); err != nil {
+			return err
+		}
+		if err := writeVarBytes(w, t.PrecertEntry.TBSCertificate, PreCertificateLengthBytes); err != nil {
+			return err
+		}
+	case XJSONLogEntryType:
+		// TODO: Pending google/certificate-transparency#1243, replace
+		// with ObjectHash once supported by CT server.
+		//jsonhash := objecthash.CommonJSONHash(string(t.JSONData))
+		if err := writeVarBytes(w, []byte(t.JSONData), JSONLengthBytes); err != nil {
+			return err
+		}
+	default:
+		return fmt.Errorf("unknown EntryType: %d", t.EntryType)
+	}
+	writeVarBytes(w, t.Extensions, ExtensionsLengthBytes)
 	return nil
 }
 
@@ -221,25 +267,35 @@ func UnmarshalDigitallySigned(r io.Reader) (*DigitallySigned, error) {
 	}
 
 	return &DigitallySigned{
-		HashAlgorithm:      HashAlgorithm(h),
-		SignatureAlgorithm: SignatureAlgorithm(s),
-		Signature:          sig,
+		Algorithm: tls.SignatureAndHashAlgorithm{
+			Hash:      tls.HashAlgorithm(h),
+			Signature: tls.SignatureAlgorithm(s)},
+		Signature: sig,
 	}, nil
+}
+
+func marshalDigitallySignedHere(ds DigitallySigned, here []byte) ([]byte, error) {
+	sigLen := len(ds.Signature)
+	dsOutLen := 2 + SignatureLengthBytes + sigLen
+	if here == nil {
+		here = make([]byte, dsOutLen)
+	}
+	if len(here) < dsOutLen {
+		return nil, ErrNotEnoughBuffer
+	}
+	here = here[0:dsOutLen]
+
+	here[0] = byte(ds.Algorithm.Hash)
+	here[1] = byte(ds.Algorithm.Signature)
+	binary.BigEndian.PutUint16(here[2:4], uint16(sigLen))
+	copy(here[4:], ds.Signature)
+
+	return here, nil
 }
 
 // MarshalDigitallySigned marshalls a DigitallySigned structure into a byte array
 func MarshalDigitallySigned(ds DigitallySigned) ([]byte, error) {
-	var b bytes.Buffer
-	if err := b.WriteByte(byte(ds.HashAlgorithm)); err != nil {
-		return nil, fmt.Errorf("failed to write HashAlgorithm: %v", err)
-	}
-	if err := b.WriteByte(byte(ds.SignatureAlgorithm)); err != nil {
-		return nil, fmt.Errorf("failed to write SignatureAlgorithm: %v", err)
-	}
-	if err := writeVarBytes(&b, ds.Signature, SignatureLengthBytes); err != nil {
-		return nil, fmt.Errorf("failed to write HashAlgorithm: %v", err)
-	}
-	return b.Bytes(), nil
+	return marshalDigitallySignedHere(ds, nil)
 }
 
 func checkCertificateFormat(cert ASN1Cert) error {
@@ -283,6 +339,29 @@ func serializeV1CertSCTSignatureInput(timestamp uint64, cert ASN1Cert, ext CTExt
 		return nil, err
 	}
 	if err := writeVarBytes(&buf, ext, ExtensionsLengthBytes); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+func serializeV1JSONSCTSignatureInput(timestamp uint64, j []byte) ([]byte, error) {
+	var buf bytes.Buffer
+	if err := binary.Write(&buf, binary.BigEndian, V1); err != nil {
+		return nil, err
+	}
+	if err := binary.Write(&buf, binary.BigEndian, CertificateTimestampSignatureType); err != nil {
+		return nil, err
+	}
+	if err := binary.Write(&buf, binary.BigEndian, timestamp); err != nil {
+		return nil, err
+	}
+	if err := binary.Write(&buf, binary.BigEndian, XJSONLogEntryType); err != nil {
+		return nil, err
+	}
+	if err := writeVarBytes(&buf, j, JSONLengthBytes); err != nil {
+		return nil, err
+	}
+	if err := writeVarBytes(&buf, nil, ExtensionsLengthBytes); err != nil {
 		return nil, err
 	}
 	return buf.Bytes(), nil
@@ -334,6 +413,8 @@ func serializeV1SCTSignatureInput(sct SignedCertificateTimestamp, entry LogEntry
 		return serializeV1PrecertSCTSignatureInput(sct.Timestamp, entry.Leaf.TimestampedEntry.PrecertEntry.IssuerKeyHash,
 			entry.Leaf.TimestampedEntry.PrecertEntry.TBSCertificate,
 			entry.Leaf.TimestampedEntry.Extensions)
+	case XJSONLogEntryType:
+		return serializeV1JSONSCTSignatureInput(sct.Timestamp, entry.Leaf.TimestampedEntry.JSONData)
 	default:
 		return nil, fmt.Errorf("unknown TimestampedEntryLeafType %s", entry.Leaf.TimestampedEntry.EntryType)
 	}
@@ -350,42 +431,82 @@ func SerializeSCTSignatureInput(sct SignedCertificateTimestamp, entry LogEntry) 
 	}
 }
 
-func serializeV1SCT(sct SignedCertificateTimestamp) ([]byte, error) {
-	if err := checkExtensionsFormat(sct.Extensions); err != nil {
-		return nil, err
+// SerializedLength will return the space (in bytes)
+func (sct SignedCertificateTimestamp) SerializedLength() (int, error) {
+	switch sct.SCTVersion {
+	case V1:
+		extLen := len(sct.Extensions)
+		sigLen := len(sct.Signature.Signature)
+		return 1 + 32 + 8 + 2 + extLen + 2 + 2 + sigLen, nil
+	default:
+		return 0, ErrInvalidVersion
 	}
-	var buf bytes.Buffer
-	if err := binary.Write(&buf, binary.BigEndian, V1); err != nil {
-		return nil, err
+}
+
+func serializeV1SCTHere(sct SignedCertificateTimestamp, here []byte) ([]byte, error) {
+	if sct.SCTVersion != V1 {
+		return nil, ErrInvalidVersion
 	}
-	if err := binary.Write(&buf, binary.BigEndian, sct.LogID); err != nil {
-		return nil, err
-	}
-	if err := binary.Write(&buf, binary.BigEndian, sct.Timestamp); err != nil {
-		return nil, err
-	}
-	if err := writeVarBytes(&buf, sct.Extensions, ExtensionsLengthBytes); err != nil {
-		return nil, err
-	}
-	sig, err := MarshalDigitallySigned(sct.Signature)
+	sctLen, err := sct.SerializedLength()
 	if err != nil {
 		return nil, err
 	}
-	if err := binary.Write(&buf, binary.BigEndian, sig); err != nil {
+	if here == nil {
+		here = make([]byte, sctLen)
+	}
+	if len(here) < sctLen {
+		return nil, ErrNotEnoughBuffer
+	}
+	if err := checkExtensionsFormat(sct.Extensions); err != nil {
 		return nil, err
 	}
-	return buf.Bytes(), nil
+
+	here = here[0:sctLen]
+
+	// Write Version
+	here[0] = byte(sct.SCTVersion)
+
+	// Write LogID
+	copy(here[1:33], sct.LogID[:])
+
+	// Write Timestamp
+	binary.BigEndian.PutUint64(here[33:41], sct.Timestamp)
+
+	// Write Extensions
+	extLen := len(sct.Extensions)
+	binary.BigEndian.PutUint16(here[41:43], uint16(extLen))
+	n := 43 + extLen
+	copy(here[43:n], sct.Extensions)
+
+	// Write Signature
+	_, err = marshalDigitallySignedHere(sct.Signature, here[n:])
+	if err != nil {
+		return nil, err
+	}
+	return here, nil
+}
+
+// SerializeSCTHere serializes the passed in sct into the format specified
+// by RFC6962 section 3.2.
+// If a bytes slice here is provided then it will attempt to serialize into the
+// provided byte slice, ErrNotEnoughBuffer will be returned if the buffer is
+// too small.
+// If a nil byte slice is provided, a buffer for will be allocated for you
+// The returned slice will be sliced to the correct length.
+func SerializeSCTHere(sct SignedCertificateTimestamp, here []byte) ([]byte, error) {
+	switch sct.SCTVersion {
+	case V1:
+		return serializeV1SCTHere(sct, here)
+	default:
+		return nil, fmt.Errorf("unknown SCT version %d", sct.SCTVersion)
+	}
 }
 
 // SerializeSCT serializes the passed in sct into the format specified
 // by RFC6962 section 3.2
+// Equivalent to SerializeSCTHere(sct, nil)
 func SerializeSCT(sct SignedCertificateTimestamp) ([]byte, error) {
-	switch sct.SCTVersion {
-	case V1:
-		return serializeV1SCT(sct)
-	default:
-		return nil, fmt.Errorf("unknown SCT version %d", sct.SCTVersion)
-	}
+	return SerializeSCTHere(sct, nil)
 }
 
 func deserializeSCTV1(r io.Reader, sct *SignedCertificateTimestamp) error {
@@ -408,6 +529,7 @@ func deserializeSCTV1(r io.Reader, sct *SignedCertificateTimestamp) error {
 	return nil
 }
 
+// DeserializeSCT reads an SCT from Reader.
 func DeserializeSCT(r io.Reader) (*SignedCertificateTimestamp, error) {
 	var sct SignedCertificateTimestamp
 	if err := binary.Read(r, binary.BigEndian, &sct.SCTVersion); err != nil {
@@ -459,5 +581,114 @@ func SerializeSTHSignatureInput(sth SignedTreeHead) ([]byte, error) {
 		return serializeV1STHSignatureInput(sth)
 	default:
 		return nil, fmt.Errorf("unsupported STH version %d", sth.Version)
+	}
+}
+
+// SCTListSerializedLength determines the length of the required buffer should a SCT List need to be serialized
+func SCTListSerializedLength(scts []SignedCertificateTimestamp) (int, error) {
+	if len(scts) == 0 {
+		return 0, fmt.Errorf("SCT List empty")
+	}
+
+	sctListLen := 0
+	for i, sct := range scts {
+		n, err := sct.SerializedLength()
+		if err != nil {
+			return 0, fmt.Errorf("unable to determine length of SCT in position %d: %v", i, err)
+		}
+		if n > MaxSCTInListLength {
+			return 0, fmt.Errorf("SCT in position %d too large: %d", i, n)
+		}
+		sctListLen += 2 + n
+	}
+
+	return sctListLen, nil
+}
+
+// SerializeSCTList serializes the passed-in slice of SignedCertificateTimestamp into a
+// byte slice as a SignedCertificateTimestampList (see RFC6962 Section 3.3)
+func SerializeSCTList(scts []SignedCertificateTimestamp) ([]byte, error) {
+	size, err := SCTListSerializedLength(scts)
+	if err != nil {
+		return nil, err
+	}
+	fullSize := 2 + size // 2 bytes for length + size of SCT list
+	if fullSize > MaxSCTListLength {
+		return nil, fmt.Errorf("SCT List too large to serialize: %d", fullSize)
+	}
+	buf := new(bytes.Buffer)
+	buf.Grow(fullSize)
+	if err = writeUint(buf, uint64(size), 2); err != nil {
+		return nil, err
+	}
+	for _, sct := range scts {
+		serialized, err := SerializeSCT(sct)
+		if err != nil {
+			return nil, err
+		}
+		if err = writeVarBytes(buf, serialized, 2); err != nil {
+			return nil, err
+		}
+	}
+	return asn1.Marshal(buf.Bytes()) // transform to Octet String
+}
+
+// SerializeMerkleTreeLeaf writes MerkleTreeLeaf to Writer.
+// In case of error, w may contain garbage.
+func SerializeMerkleTreeLeaf(w io.Writer, m *MerkleTreeLeaf) error {
+	if m.Version != V1 {
+		return fmt.Errorf("unknown Version %d", m.Version)
+	}
+	if err := binary.Write(w, binary.BigEndian, m.Version); err != nil {
+		return err
+	}
+	if m.LeafType != TimestampedEntryLeafType {
+		return fmt.Errorf("unknown LeafType %d", m.LeafType)
+	}
+	if err := binary.Write(w, binary.BigEndian, m.LeafType); err != nil {
+		return err
+	}
+	if err := SerializeTimestampedEntry(w, &m.TimestampedEntry); err != nil {
+		return err
+	}
+	return nil
+}
+
+// CreateX509MerkleTreeLeaf generates a MerkleTreeLeaf for an X509 cert
+func CreateX509MerkleTreeLeaf(cert ASN1Cert, timestamp uint64) *MerkleTreeLeaf {
+	return &MerkleTreeLeaf{
+		Version:  V1,
+		LeafType: TimestampedEntryLeafType,
+		TimestampedEntry: TimestampedEntry{
+			Timestamp: timestamp,
+			EntryType: X509LogEntryType,
+			X509Entry: cert,
+		},
+	}
+}
+
+// CreateJSONMerkleTreeLeaf creates the merkle tree leaf for json data.
+func CreateJSONMerkleTreeLeaf(data interface{}, timestamp uint64) *MerkleTreeLeaf {
+	jsonData, err := json.Marshal(AddJSONRequest{Data: data})
+	if err != nil {
+		return nil
+	}
+	// Match the JSON serialization implemented by json-c
+	jsonStr := strings.Replace(string(jsonData), ":", ": ", -1)
+	jsonStr = strings.Replace(jsonStr, ",", ", ", -1)
+	jsonStr = strings.Replace(jsonStr, "{", "{ ", -1)
+	jsonStr = strings.Replace(jsonStr, "}", " }", -1)
+	jsonStr = strings.Replace(jsonStr, "/", `\/`, -1)
+	// TODO: Pending google/certificate-transparency#1243, replace with
+	// ObjectHash once supported by CT server.
+
+	return &MerkleTreeLeaf{
+		Version:  V1,
+		LeafType: TimestampedEntryLeafType,
+		TimestampedEntry: TimestampedEntry{
+			Timestamp: timestamp,
+			EntryType: XJSONLogEntryType,
+			JSONData:  []byte(jsonStr),
+		},
 	}
 }

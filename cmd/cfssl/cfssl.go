@@ -24,24 +24,29 @@ import (
 	"flag"
 	"os"
 
-	"github.com/cloudflare/cfssl/cli"
-	"github.com/cloudflare/cfssl/cli/bundle"
-	"github.com/cloudflare/cfssl/cli/certinfo"
-	"github.com/cloudflare/cfssl/cli/gencert"
-	"github.com/cloudflare/cfssl/cli/gencrl"
-	"github.com/cloudflare/cfssl/cli/genkey"
-	"github.com/cloudflare/cfssl/cli/info"
-	"github.com/cloudflare/cfssl/cli/ocspdump"
-	"github.com/cloudflare/cfssl/cli/ocsprefresh"
-	"github.com/cloudflare/cfssl/cli/ocspserve"
-	"github.com/cloudflare/cfssl/cli/ocspsign"
-	"github.com/cloudflare/cfssl/cli/printdefault"
-	"github.com/cloudflare/cfssl/cli/revoke"
-	"github.com/cloudflare/cfssl/cli/scan"
-	"github.com/cloudflare/cfssl/cli/selfsign"
-	"github.com/cloudflare/cfssl/cli/serve"
-	"github.com/cloudflare/cfssl/cli/sign"
-	"github.com/cloudflare/cfssl/cli/version"
+	"github.com/ucosty/cfssl/cli"
+	"github.com/ucosty/cfssl/cli/bundle"
+	"github.com/ucosty/cfssl/cli/certinfo"
+	"github.com/ucosty/cfssl/cli/crl"
+	"github.com/ucosty/cfssl/cli/gencert"
+	"github.com/ucosty/cfssl/cli/gencrl"
+	"github.com/ucosty/cfssl/cli/genkey"
+	"github.com/ucosty/cfssl/cli/info"
+	"github.com/ucosty/cfssl/cli/ocspdump"
+	"github.com/ucosty/cfssl/cli/ocsprefresh"
+	"github.com/ucosty/cfssl/cli/ocspserve"
+	"github.com/ucosty/cfssl/cli/ocspsign"
+	"github.com/ucosty/cfssl/cli/printdefault"
+	"github.com/ucosty/cfssl/cli/revoke"
+	"github.com/ucosty/cfssl/cli/scan"
+	"github.com/ucosty/cfssl/cli/selfsign"
+	"github.com/ucosty/cfssl/cli/serve"
+	"github.com/ucosty/cfssl/cli/sign"
+	"github.com/ucosty/cfssl/cli/version"
+
+	_ "github.com/go-sql-driver/mysql" // import to support MySQL
+	_ "github.com/lib/pq"              // import to support Postgres
+	_ "github.com/mattn/go-sqlite3"    // import to support SQLite3
 )
 
 // main defines the cfssl usage and registers all defined commands and flags.
@@ -52,6 +57,7 @@ func main() {
 	cmds := map[string]*cli.Command{
 		"bundle":         bundle.Command,
 		"certinfo":       certinfo.Command,
+		"crl":            crl.Command,
 		"sign":           sign.Command,
 		"serve":          serve.Command,
 		"version":        version.Command,

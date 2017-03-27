@@ -6,11 +6,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cloudflare/cfssl/api/client"
-	"github.com/cloudflare/cfssl/csr"
-	"github.com/cloudflare/cfssl/info"
-	"github.com/cloudflare/cfssl/log"
-	"github.com/cloudflare/cfssl/transport/core"
+	"github.com/ucosty/cfssl/api/client"
+	"github.com/ucosty/cfssl/csr"
+	"github.com/ucosty/cfssl/info"
+	"github.com/ucosty/cfssl/log"
+	"github.com/ucosty/cfssl/transport/core"
 )
 
 var (
@@ -210,7 +210,7 @@ func testListen(t *testing.T) {
 	log.Debug("listener waiting for connection")
 	conn, err := l.Accept()
 	if err != nil {
-		t.Fatalf("%v", err)
+		panic(err.Error())
 	}
 
 	log.Debugf("client has connected")
@@ -243,7 +243,7 @@ func TestListener(t *testing.T) {
 	go func() {
 		err := <-errChan
 		if err != nil {
-			t.Fatalf("listener auto update failed: %v", err)
+			panic("listener auto update failed: " + err.Error())
 		}
 	}()
 

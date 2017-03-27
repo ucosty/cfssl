@@ -1,0 +1,6 @@
+{
+  "engine": "couchbase",
+  "uri": "couchbase://127.0.0.1",
+  "bucket": "pki",
+  "password": "signcall_vagrant_pki"
+}

@@ -6,11 +6,11 @@ import (
 	"io/ioutil"
 	"net/http"
 
-	"github.com/cloudflare/cfssl/api"
-	"github.com/cloudflare/cfssl/csr"
-	"github.com/cloudflare/cfssl/errors"
-	"github.com/cloudflare/cfssl/initca"
-	"github.com/cloudflare/cfssl/log"
+	"github.com/ucosty/cfssl/api"
+	"github.com/ucosty/cfssl/csr"
+	"github.com/ucosty/cfssl/errors"
+	"github.com/ucosty/cfssl/initca"
+	"github.com/ucosty/cfssl/log"
 )
 
 // A NewCA contains a private key and certificate suitable for serving
@@ -31,6 +31,7 @@ func initialCAHandler(w http.ResponseWriter, r *http.Request) error {
 		log.Warningf("failed to read request body: %v", err)
 		return errors.NewBadRequest(err)
 	}
+	r.Body.Close()
 
 	req := new(csr.CertificateRequest)
 	req.KeyRequest = csr.NewBasicKeyRequest()

@@ -2,13 +2,12 @@ package cli
 
 import (
 	"flag"
-	"os"
 	"time"
 
-	"github.com/cloudflare/cfssl/config"
-	"github.com/cloudflare/cfssl/helpers"
-	"github.com/cloudflare/cfssl/signer/pkcs11"
-	"github.com/cloudflare/cfssl/signer/universal"
+	"github.com/ucosty/cfssl/config"
+	"github.com/ucosty/cfssl/helpers"
+	"github.com/ucosty/cfssl/log"
+	"github.com/ucosty/cfssl/signer/universal"
 )
 
 // Config is a type to hold flag values used by cfssl commands.
@@ -22,6 +21,9 @@ type Config struct {
 	TLSKeyFile        string
 	MutualTLSCAFile   string
 	MutualTLSCNRegex  string
+	TLSRemoteCAs      string
+	MutualTLSCertFile string
+	MutualTLSKeyFile  string
 	KeyFile           string
 	IntermediatesFile string
 	CABundleFile      string
@@ -42,10 +44,6 @@ type Config struct {
 	Remote            string
 	Label             string
 	AuthKey           string
-	Module            string
-	Token             string
-	PIN               string
-	PKCS11Label       string
 	ResponderFile     string
 	ResponderKeyFile  string
 	Status            string
@@ -61,11 +59,15 @@ type Config struct {
 	MaxHosts          int
 	Responses         string
 	Path              string
+	CRL               string
 	Usage             string
 	PGPPrivate        string
+	PGPName           string
 	Serial            string
+	CNOverride        string
 	AKI               string
 	DBConfigFile      string
+	CRLExpiration     time.Duration
 }
 
 // registerFlags defines all cfssl command flags and associates their values with variables.
@@ -79,6 +81,9 @@ func registerFlags(c *Config, f *flag.FlagSet) {
 	f.StringVar(&c.TLSKeyFile, "tls-key", "", "Other endpoint CA private key")
 	f.StringVar(&c.MutualTLSCAFile, "mutual-tls-ca", "", "Mutual TLS - require clients be signed by this CA ")
 	f.StringVar(&c.MutualTLSCNRegex, "mutual-tls-cn", "", "Mutual TLS - regex for whitelist of allowed client CNs")
+	f.StringVar(&c.TLSRemoteCAs, "tls-remote-ca", "", "CAs to trust for remote TLS requests")
+	f.StringVar(&c.MutualTLSCertFile, "mutual-tls-client-cert", "", "Mutual TLS - client certificate to call remote instance requiring client certs")
+	f.StringVar(&c.MutualTLSKeyFile, "mutual-tls-client-key", "", "Mutual TLS - client key to call remote instance requiring client certs")
 	f.StringVar(&c.KeyFile, "key", "", "private key for the certificate")
 	f.StringVar(&c.IntermediatesFile, "intermediates", "", "intermediate certs")
 	f.StringVar(&c.CABundleFile, "ca-bundle", "", "path to root certificate store")
@@ -112,19 +117,17 @@ func registerFlags(c *Config, f *flag.FlagSet) {
 	f.IntVar(&c.MaxHosts, "max-hosts", 100, "maximum number of hosts to scan")
 	f.StringVar(&c.Responses, "responses", "", "file to load OCSP responses from")
 	f.StringVar(&c.Path, "path", "/", "Path on which the server will listen")
+	f.StringVar(&c.CRL, "crl", "", "CRL URL Override")
 	f.StringVar(&c.Password, "password", "0", "Password for accessing PKCS #12 data passed to bundler")
 	f.StringVar(&c.Usage, "usage", "", "usage of private key")
 	f.StringVar(&c.PGPPrivate, "pgp-private", "", "file to load a PGP Private key decryption")
+	f.StringVar(&c.PGPName, "pgp-name", "", "PGP public key name, can be a comma-sepearted  key name list")
 	f.StringVar(&c.Serial, "serial", "", "certificate serial number")
+	f.StringVar(&c.CNOverride, "cn", "", "certificate common name (CN)")
 	f.StringVar(&c.AKI, "aki", "", "certificate issuer (authority) key identifier")
 	f.StringVar(&c.DBConfigFile, "db-config", "", "certificate db configuration file")
-
-	if pkcs11.Enabled {
-		f.StringVar(&c.Module, "pkcs11-module", "", "PKCS #11 module")
-		f.StringVar(&c.Token, "pkcs11-token", "", "PKCS #11 token")
-		f.StringVar(&c.PIN, "pkcs11-pin", os.Getenv("USER_PIN"), "PKCS #11 user PIN")
-		f.StringVar(&c.PKCS11Label, "pkcs11-label", "", "PKCS #11 label")
-	}
+	f.DurationVar(&c.CRLExpiration, "expiry", 7*helpers.OneDay, "time from now after which the CRL will expire (default: one week)")
+	f.IntVar(&log.Level, "loglevel", log.LevelInfo, "Log level (0 = DEBUG, 5 = FATAL)")
 }
 
 // RootFromConfig returns a universal signer Root structure that can
@@ -132,12 +135,8 @@ func registerFlags(c *Config, f *flag.FlagSet) {
 func RootFromConfig(c *Config) universal.Root {
 	return universal.Root{
 		Config: map[string]string{
-			"pkcs11-module":   c.Module,
-			"pkcs11-token":    c.Token,
-			"pkcs11-label":    c.PKCS11Label,
-			"pkcs11-user-pin": c.PIN,
-			"cert-file":       c.CAFile,
-			"key-file":        c.CAKeyFile,
+			"cert-file": c.CAFile,
+			"key-file":  c.CAKeyFile,
 		},
 		ForceRemote: c.Remote != "",
 	}

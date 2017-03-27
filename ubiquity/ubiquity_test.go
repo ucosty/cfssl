@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cloudflare/cfssl/helpers"
+	"github.com/ucosty/cfssl/helpers"
 )
 
 const (
@@ -548,7 +548,7 @@ func TestSHA1DeprecationMessages(t *testing.T) {
 	chain2 := []*x509.Certificate{cert1, cert1}
 	chain3 := []*x509.Certificate{cert2, cert1, cert1}
 	chain4 := []*x509.Certificate{cert2, cert2, cert1}
-	messages := []string{}
+	var messages []string
 
 	Jan1st2014 := time.Date(2014, time.January, 1, 0, 0, 0, 0, time.UTC)
 	Jan1st2100 := time.Date(2100, time.January, 1, 0, 0, 0, 0, time.UTC)

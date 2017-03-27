@@ -1,11 +1,13 @@
 package client
 
 import (
+	"crypto/tls"
 	"errors"
+	"net/http"
 	"strings"
 
-	"github.com/cloudflare/cfssl/auth"
-	"github.com/cloudflare/cfssl/info"
+	"github.com/ucosty/cfssl/auth"
+	"github.com/ucosty/cfssl/info"
 )
 
 // Strategy is the means by which the server to use as a remote should
@@ -40,14 +42,14 @@ func StrategyFromString(s string) Strategy {
 
 // NewGroup will use the collection of remotes specified with the
 // given strategy.
-func NewGroup(remotes []string, strategy Strategy) (Remote, error) {
+func NewGroup(remotes []string, tlsConfig *tls.Config, strategy Strategy) (Remote, error) {
 	var servers = make([]*server, len(remotes))
 	for i := range remotes {
 		u, err := normalizeURL(remotes[i])
 		if err != nil {
 			return nil, err
 		}
-		servers[i], _ = newServer(u)
+		servers[i], _ = newServer(u, tlsConfig)
 	}
 
 	switch strategy {
@@ -108,4 +110,9 @@ func (g *orderedListGroup) Info(jsonData []byte) (resp *info.Resp, err error) {
 	}
 
 	return nil, err
+}
+
+// SetReqModifier does nothing because there is no request modifier for group
+func (g *orderedListGroup) SetReqModifier(mod func(*http.Request, []byte)) {
+	// noop
 }

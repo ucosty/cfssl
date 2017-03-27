@@ -1,19 +1,19 @@
 # CFSSL
 
-[![Build Status](https://travis-ci.org/cloudflare/cfssl.png?branch=master)](https://travis-ci.org/cloudflare/cfssl)
+[![Build Status](https://travis-ci.org/cloudflare/cfssl.svg?branch=master)](https://travis-ci.org/cloudflare/cfssl)
 [![Coverage Status](http://codecov.io/github/cloudflare/cfssl/coverage.svg?branch=master)](http://codecov.io/github/cloudflare/cfssl?branch=master)
-[![GoDoc](https://godoc.org/github.com/cloudflare/cfssl?status.png)](https://godoc.org/github.com/cloudflare/cfssl)
+[![GoDoc](https://godoc.org/github.com/ucosty/cfssl?status.svg)](https://godoc.org/github.com/ucosty/cfssl)
 
 ## CloudFlare's PKI/TLS toolkit
 
 CFSSL is CloudFlare's PKI/TLS swiss army knife. It is both a command line
 tool and an HTTP API server for signing, verifying, and bundling TLS
-certificates. It requires Go 1.4 to build.
+certificates. It requires Go 1.6+ to build.
 
 Note that certain linux distributions have certain algorithms removed
 (RHEL-based distributions in particular), so the golang from the
 official repositories will not work. Users of these distributions should
-[install go manually](//golang.org) to install CFSSL.
+[install go manually](//golang.org/dl) to install CFSSL.
 
 CFSSL consists of:
 
@@ -34,16 +34,11 @@ See [BUILDING](BUILDING.md)
 ### Installation
 
 Installation requires a
-[working Go installation](http://golang.org/doc/install) and a
-properly set `GOPATH`.  The default behaviour is to build without PKCS
-\#11. PKCS\#11 requires the `gcc` compiler and the libtool development
-library and header files. On Ubuntu, this is
-`libltdl-dev`. On Centos/RHEL, this is 'libtool' and 'libtool-ltdl'.
-If these are installed, you can pass `-tags pkcs11` to the below
-go get commands.
+[working Go 1.6+ installation](http://golang.org/doc/install) and a
+properly set `GOPATH`.
 
 ```
-$ go get -u github.com/cloudflare/cfssl/cmd/cfssl
+$ go get -u github.com/ucosty/cfssl/cmd/cfssl
 ```
 
 will download and build the CFSSL tool, installing it in
@@ -51,12 +46,34 @@ will download and build the CFSSL tool, installing it in
 this repo:
 
 ```
-$ go get -u github.com/cloudflare/cfssl/cmd/...
+$ go get -u github.com/ucosty/cfssl/cmd/...
 ```
 
 This will download, build, and install `cfssl`, `cfssljson`, and
 `mkbundle` into `$GOPATH/bin/`.
 
+#### Installing pre-Go 1.6
+
+With a Go 1.5 installation, CFSSL will still probably build. However,
+the test system uses [`golint`](https://github.com/golang/lint), which
+no longer works on Go 1.5. As our test suite can't cover Go 1.5 anymore,
+we no longer support it.
+
+Note that CFSSL makes use of vendored packages; in Go 1.5, the
+`GO15VENDOREXPERIMENT` environment variable will need to be set, e.g.
+
+```
+export GO15VENDOREXPERIMENT=1
+```
+
+With a Go 1.4 or earlier installation, you won't be able to install the
+latest version of CFSSL. However, you can checkout the `1.1.0` release
+and build that.
+
+```
+git clone -b 1.1.0 https://github.com/ucosty/cfssl.git $GOPATH/src/github.com/ucosty/cfssl
+go get github.com/ucosty/cfssl/cmd/cfssl
+```
 
 ### Using the Command Line Tool
 
@@ -104,7 +121,7 @@ The subject is an optional file that contains subject information that
 should be used in place of the information from the CSR. It should be
 a JSON file with the type:
 
-```
+```json
 {
     "CN": "example.com",
     "names": [
@@ -119,6 +136,9 @@ a JSON file with the type:
 }
 ```
 
+**N.B.** As of Go 1.7, self-signed certificates will not include
+[the AKI](https://go.googlesource.com/go/+/b623b71509b2d24df915d5bc68602e1c6edf38ca).
+
 #### Bundling
 
 ```
@@ -130,7 +150,7 @@ cfssl bundle [-ca-bundle bundle] [-int-bundle bundle] \
 The bundles are used for the root and intermediate certificate
 pools. In addition, platform metadata is specified through '-metadata'
 The bundle files, metadata file (and auxiliary files) can be
-found at [cfssl_trust](https://github.com/cloudflare/cfssl_trust)
+found at [cfssl_trust](https://github.com/ucosty/cfssl_trust)
 
 
 Specify PEM-encoded client certificate and key through '-cert' and
@@ -159,7 +179,7 @@ cfssl bundle [-ca-bundle bundle] [-int-bundle bundle] \
 
 The bundle output form should follow the example
 
-```
+```json
 {
     "bundle": "CERT_BUNDLE_IN_PEM",
     "crt": "LEAF_CERT_IN_PEM",
@@ -195,7 +215,7 @@ cfssl genkey csr.json
 To generate a private key and corresponding certificate request, specify
 the key request as a JSON file. This file should follow the form
 
-```
+```json
 {
     "hosts": [
         "example.com",
@@ -261,7 +281,7 @@ OCSP server.
 ### Starting the API Server
 
 CFSSL comes with an HTTP-based API server; the endpoints are
-documented in `doc/api.txt`. The server is started with the "serve"
+documented in `doc/api/intro.txt`. The server is started with the "serve"
 command:
 
 ```
@@ -287,10 +307,10 @@ file. '-responder' and  '-responder-key' are Certificate for OCSP responder
 and private key for OCSP responder certificate, respectively.
 
 The amount of logging can be controlled with the `-loglevel` option. This
-comes *before* the serve command:
+comes *after* the serve command:
 
 ```
-cfssl -loglevel 2 serve
+cfssl serve -loglevel 2
 ```
 
 The levels are:
@@ -315,7 +335,7 @@ for configuring and running the CA.
 verifying certificates. It can be installed with
 
 ```
-go get -u github.com/cloudflare/cfssl/cmd/mkbundle
+go get -u github.com/ucosty/cfssl/cmd/mkbundle
 ```
 
 It takes a collection of certificates, checks for CRL revocation (OCSP
@@ -422,6 +442,6 @@ same time.
 
 Additional documentation can be found in the "doc/" directory:
 
-* `api.txt`: documents the API endpoints
+* `api/intro.txt`: documents the API endpoints
 * `bootstrap.txt`: a walkthrough from building the package to getting
   up and running

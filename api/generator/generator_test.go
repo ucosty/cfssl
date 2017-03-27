@@ -8,14 +8,18 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cloudflare/cfssl/config"
-	"github.com/cloudflare/cfssl/csr"
-	"github.com/cloudflare/cfssl/signer/local"
+
+	"github.com/ucosty/cfssl/api"
+	"github.com/ucosty/cfssl/config"
+	"github.com/ucosty/cfssl/csr"
+	"github.com/ucosty/cfssl/signer/local"
 )
 
 const (
 	testCaFile    = "testdata/ca.pem"
 	testCaKeyFile = "testdata/ca_key.pem"
+	testCABundle  = "../../bundler/testdata/ca-bundle.pem"
+	testIntBundle = "../../bundler/testdata/int-bundle.pem"
 )
 
 func csrData(t *testing.T) *bytes.Reader {
@@ -109,7 +113,7 @@ func TestNewCertGeneratorHandlerFromSigner(t *testing.T) {
 				Usage:        []string{"cert sign", "crl sign"},
 				ExpiryString: "43800h",
 				Expiry:       expiry,
-				CA:           true,
+				CAConstraint: config.CAConstraint{IsCA: true},
 
 				ClientProvidesSerialNumbers: true,
 			},
@@ -124,5 +128,19 @@ func TestNewCertGeneratorHandlerFromSigner(t *testing.T) {
 	_, ok := h.(http.Handler)
 	if !ok {
 		t.Fatal("A HTTP handler has not been returned")
+	}
+
+	apiH, ok := h.(api.HTTPHandler)
+	if !ok {
+		t.Fatal("An api.HTTPHandler has not been returned")
+	}
+
+	cg, ok := apiH.Handler.(*CertGeneratorHandler)
+	if !ok {
+		t.Fatal("A CertGeneratorHandler has not been set")
+	}
+
+	if err := cg.SetBundler(testCABundle, testIntBundle); err != nil {
+		t.Fatal(err)
 	}
 }

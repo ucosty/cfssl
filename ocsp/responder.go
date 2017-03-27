@@ -1,7 +1,16 @@
+// Package ocsp implements an OCSP responder based on a generic storage backend.
+// It provides a couple of sample implementations.
+// Because OCSP responders handle high query volumes, we have to be careful
+// about how much logging we do. Error-level logs are reserved for problems
+// internal to the server, that can be fixed by an administrator. Any type of
+// incorrect input from a user should be logged and Info or below. For things
+// that are logged on every request, Debug is the appropriate level.
 package ocsp
 
 import (
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -9,8 +18,9 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/cloudflare/cfssl/log"
+	"github.com/ucosty/cfssl/certdb"
 	"github.com/jmhodges/clock"
+	"github.com/ucosty/cfssl/log"
 	"golang.org/x/crypto/ocsp"
 )
 
@@ -39,6 +49,64 @@ type InMemorySource map[string][]byte
 func (src InMemorySource) Response(request *ocsp.Request) (response []byte, present bool) {
 	response, present = src[request.SerialNumber.String()]
 	return
+}
+
+// DBSource represnts a source of OCSP responses backed by the certdb package.
+type DBSource struct {
+	Accessor certdb.Accessor
+}
+
+// NewDBSource creates a new DBSource type with an associated dbAccessor.
+func NewDBSource(dbAccessor certdb.Accessor) Source {
+	return DBSource{
+		Accessor: dbAccessor,
+	}
+}
+
+// Response implements cfssl.ocsp.responder.Source, which returns the
+// OCSP response in the Database for the given request with the expiration
+// date furthest in the future.  Response also returns a bool that is false
+// if there were any errors obtaining the OCSP response and/or no OCSP response
+// is present in the DB for the given request.  Response will return a true
+// bool if the byte array returned is a valid OCSP response.
+func (src DBSource) Response(req *ocsp.Request) ([]byte, bool) {
+	if req == nil {
+		return nil, false
+	}
+
+	aki := hex.EncodeToString(req.IssuerKeyHash)
+	sn := req.SerialNumber
+
+	if sn == nil {
+		return nil, false
+	}
+	strSN := sn.String()
+
+	if src.Accessor == nil {
+		log.Errorf("No DB Accessor")
+		return nil, false
+	}
+	records, err := src.Accessor.GetOCSP(strSN, aki)
+
+	// Response() logs when there are errors obtaining the OCSP response
+	// and returns nil, false.
+	if err != nil {
+		log.Errorf("Error obtaining OCSP response: %s", err)
+		return nil, false
+	}
+
+	if len(records) == 0 {
+		return nil, false
+	}
+
+	// Response() finds the OCSPRecord with the expiration date furthest in the future.
+	cur := records[0]
+	for _, rec := range records {
+		if rec.Expiry.After(cur.Expiry) {
+			cur = rec
+		}
+	}
+	return []byte(cur.Body), true
 }
 
 // NewSourceFromFile reads the named file into an InMemorySource.
@@ -104,6 +172,11 @@ func NewResponder(source Source) *Responder {
 // strings of repeated '/' into a single '/', which will break the base64
 // encoding.
 func (rs Responder) ServeHTTP(response http.ResponseWriter, request *http.Request) {
+	// By default we set a 'max-age=0, no-cache' Cache-Control header, this
+	// is only returned to the client if a valid authorized OCSP response
+	// is not found or an error is returned. If a response if found the header
+	// will be altered to contain the proper max-age and modifiers.
+	response.Header().Add("Cache-Control", "max-age=0, no-cache")
 	// Read response from request
 	var requestBody []byte
 	var err error
@@ -111,7 +184,7 @@ func (rs Responder) ServeHTTP(response http.ResponseWriter, request *http.Reques
 	case "GET":
 		base64Request, err := url.QueryUnescape(request.URL.Path)
 		if err != nil {
-			log.Errorf("Error decoding URL: %s", request.URL.Path)
+			log.Infof("Error decoding URL: %s", request.URL.Path)
 			response.WriteHeader(http.StatusBadRequest)
 			return
 		}
@@ -127,7 +200,7 @@ func (rs Responder) ServeHTTP(response http.ResponseWriter, request *http.Reques
 		}
 		requestBody, err = base64.StdEncoding.DecodeString(string(base64RequestBytes))
 		if err != nil {
-			log.Errorf("Error decoding base64 from URL: %s", base64Request)
+			log.Infof("Error decoding base64 from URL: %s", base64Request)
 			response.WriteHeader(http.StatusBadRequest)
 			return
 		}
@@ -142,9 +215,8 @@ func (rs Responder) ServeHTTP(response http.ResponseWriter, request *http.Reques
 		response.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-	// TODO log request
 	b64Body := base64.StdEncoding.EncodeToString(requestBody)
-	log.Infof("Received OCSP request: %s", b64Body)
+	log.Debugf("Received OCSP request: %s", b64Body)
 
 	// All responses after this point will be OCSP.
 	// We could check for the content type of the request, but that
@@ -157,7 +229,7 @@ func (rs Responder) ServeHTTP(response http.ResponseWriter, request *http.Reques
 	//      should return unauthorizedRequest instead of malformed.
 	ocspRequest, err := ocsp.ParseRequest(requestBody)
 	if err != nil {
-		log.Errorf("Error decoding request body: %s", b64Body)
+		log.Infof("Error decoding request body: %s", b64Body)
 		response.WriteHeader(http.StatusBadRequest)
 		response.Write(malformedRequestErrorResponse)
 		return
@@ -166,24 +238,50 @@ func (rs Responder) ServeHTTP(response http.ResponseWriter, request *http.Reques
 	// Look up OCSP response from source
 	ocspResponse, found := rs.Source.Response(ocspRequest)
 	if !found {
-		log.Errorf("No response found for request: %s", b64Body)
+		log.Infof("No response found for request: serial %x, request body %s",
+			ocspRequest.SerialNumber, b64Body)
 		response.Write(unauthorizedErrorResponse)
 		return
 	}
 
 	parsedResponse, err := ocsp.ParseResponse(ocspResponse, nil)
 	if err != nil {
-		log.Errorf("Error parsing response: %s", err)
+		log.Errorf("Error parsing response for serial %x: %s",
+			ocspRequest.SerialNumber, err)
 		response.Write(unauthorizedErrorResponse)
 		return
 	}
 
 	// Write OCSP response to response
-	response.Header().Add("Last-Modified", parsedResponse.ProducedAt.Format(time.RFC1123))
+	response.Header().Add("Last-Modified", parsedResponse.ThisUpdate.Format(time.RFC1123))
 	response.Header().Add("Expires", parsedResponse.NextUpdate.Format(time.RFC1123))
-	maxAge := int64(parsedResponse.NextUpdate.Sub(rs.clk.Now()) / time.Second)
-	if maxAge > 0 {
-		response.Header().Add("Cache-Control", fmt.Sprintf("max-age=%d", maxAge))
+	now := rs.clk.Now()
+	maxAge := 0
+	if now.Before(parsedResponse.NextUpdate) {
+		maxAge = int(parsedResponse.NextUpdate.Sub(now) / time.Second)
+	} else {
+		// TODO(#530): we want max-age=0 but this is technically an authorized OCSP response
+		//             (despite being stale) and 5019 forbids attaching no-cache
+		maxAge = 0
+	}
+	response.Header().Set(
+		"Cache-Control",
+		fmt.Sprintf(
+			"max-age=%d, public, no-transform, must-revalidate",
+			maxAge,
+		),
+	)
+	responseHash := sha256.Sum256(ocspResponse)
+	response.Header().Add("ETag", fmt.Sprintf("\"%X\"", responseHash))
+
+	// RFC 7232 says that a 304 response must contain the above
+	// headers if they would also be sent for a 200 for the same
+	// request, so we have to wait until here to do this
+	if etag := request.Header.Get("If-None-Match"); etag != "" {
+		if etag == fmt.Sprintf("\"%X\"", responseHash) {
+			response.WriteHeader(http.StatusNotModified)
+			return
+		}
 	}
 	response.WriteHeader(http.StatusOK)
 	response.Write(ocspResponse)

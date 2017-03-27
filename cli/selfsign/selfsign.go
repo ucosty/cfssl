@@ -3,16 +3,17 @@ package selfsign
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"time"
 
-	"github.com/cloudflare/cfssl/cli"
-	"github.com/cloudflare/cfssl/cli/genkey"
-	"github.com/cloudflare/cfssl/config"
-	"github.com/cloudflare/cfssl/csr"
-	"github.com/cloudflare/cfssl/helpers"
-	"github.com/cloudflare/cfssl/selfsign"
+	"github.com/ucosty/cfssl/cli"
+	"github.com/ucosty/cfssl/cli/genkey"
+	"github.com/ucosty/cfssl/config"
+	"github.com/ucosty/cfssl/csr"
+	"github.com/ucosty/cfssl/helpers"
+	"github.com/ucosty/cfssl/selfsign"
 )
 
 var selfSignUsageText = `cfssl selfsign -- generate a new self-signed key and signed certificate
@@ -47,6 +48,10 @@ func selfSignMain(args []string, c cli.Config) (err error) {
 	csrFile, args, err := cli.PopFirstArgument(args)
 	if err != nil {
 		return
+	}
+
+	if len(args) > 0 {
+		return errors.New("too many arguments are provided, please check with usage")
 	}
 
 	csrFileBytes, err := cli.ReadStdin(csrFile)

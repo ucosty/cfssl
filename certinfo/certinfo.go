@@ -5,21 +5,26 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"errors"
+	"fmt"
 	"io/ioutil"
 	"net"
 	"strings"
 	"time"
 
-	"github.com/cloudflare/cfssl/helpers"
+	"github.com/ucosty/cfssl/helpers"
 )
 
 // Certificate represents a JSON description of an X.509 certificate.
 type Certificate struct {
 	Subject            Name      `json:"subject,omitempty"`
+	Issuer             Name      `json:"issuer,omitempty"`
+	SerialNumber       string    `json:"serial_number,omitempty"`
 	SANs               []string  `json:"sans,omitempty"`
 	NotBefore          time.Time `json:"not_before"`
 	NotAfter           time.Time `json:"not_after"`
 	SignatureAlgorithm string    `json:"sigalg"`
+	AKI                string    `json:"authority_key_id"`
+	SKI                string    `json:"subject_key_id"`
 	RawPEM             string    `json:"pem"`
 }
 
@@ -64,6 +69,19 @@ func ParseName(name pkix.Name) Name {
 	return n
 }
 
+func formatKeyID(id []byte) string {
+	var s string
+
+	for i, c := range id {
+		if i > 0 {
+			s += ":"
+		}
+		s += fmt.Sprintf("%X", c)
+	}
+
+	return s
+}
+
 // ParseCertificate parses an x509 certificate.
 func ParseCertificate(cert *x509.Certificate) *Certificate {
 	c := &Certificate{
@@ -72,7 +90,11 @@ func ParseCertificate(cert *x509.Certificate) *Certificate {
 		NotBefore:          cert.NotBefore,
 		NotAfter:           cert.NotAfter,
 		Subject:            ParseName(cert.Subject),
+		Issuer:             ParseName(cert.Issuer),
 		SANs:               cert.DNSNames,
+		AKI:                formatKeyID(cert.AuthorityKeyId),
+		SKI:                formatKeyID(cert.SubjectKeyId),
+		SerialNumber:       cert.SerialNumber.String(),
 	}
 	for _, ip := range cert.IPAddresses {
 		c.SANs = append(c.SANs, ip.String())
